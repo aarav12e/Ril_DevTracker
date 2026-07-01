@@ -1,29 +1,17 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-
-# Virtual environment
-venv/
-
-# Environment variables
-.env
-
-# Distribution / packaging
-.Python
-build/
-dist/
-*.egg-info/
-.eggs/
-
-# VS Code
-.vscode/
-
-# Pytest
-.pytest_cache/
-
-# macOS
+# OS files
 .DS_Store
+Thumbs.db
 
-# SQLite
-*.sqlite3
+# Editor settings
+.vscode/
+.idea/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Git and local metadata
+.git/
+
+# Folder-specific ignore rules live in the backend and frontend directories.

@@ -296,3 +296,10 @@ The frontend should open on the Vite local URL shown in the terminal.
 - Tailwind CSS
 - Axios
 - React Router-style page structure
+
+
+to start the backend
+
+cd /Users/aarav/Desktop/Project/devtracker-backend/backend
+source venv/bin/activate
+uvicorn main:app --reload

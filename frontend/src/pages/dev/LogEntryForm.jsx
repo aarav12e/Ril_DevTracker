@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import Layout from '../../components/layout/Layout'
 import api from '../../api/axios'
 import { useAuth } from '../../context/AuthContext'
@@ -9,15 +9,50 @@ import { Save, X, Info } from 'lucide-react'
 export default function LogEntryForm() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const { id } = useParams()
+  const isEdit = !!id
+
   const [form, setForm] = useState({
     task_title: '', description: '', track: '', dev_type_task: '',
     type_of_development: '', cd_number: '', functional_team: '',
     priority: 'medium', start_date: '', due_date: '',
+    status: 'pending', minutes_logged: '0'
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }))
+
+  useEffect(() => {
+    if (isEdit) {
+      const fetchTask = async () => {
+        setLoading(true)
+        try {
+          const { data } = await api.get(`/api/tasks/${id}`)
+          setForm({
+            task_title: data.task_title || '',
+            description: data.description || '',
+            track: data.track || '',
+            dev_type_task: data.dev_type_task || '',
+            type_of_development: data.type_of_development || '',
+            cd_number: data.cd_number || '',
+            functional_team: data.functional_team || '',
+            priority: data.priority || 'medium',
+            start_date: data.start_date || '',
+            due_date: data.due_date || '',
+            status: data.status || 'pending',
+            // Convert stored hours -> minutes for display
+            minutes_logged: data.hours_logged ? String(Math.round(parseFloat(data.hours_logged) * 60)) : '0'
+          })
+        } catch (err) {
+          setError(err.response?.data?.detail || 'Failed to fetch task details')
+        } finally {
+          setLoading(false)
+        }
+      }
+      fetchTask()
+    }
+  }, [id, isEdit])
 
   const submit = async (e) => {
     e.preventDefault()
@@ -27,7 +62,18 @@ export default function LogEntryForm() {
       const payload = { ...form }
       if (!payload.start_date) delete payload.start_date
       if (!payload.due_date)   delete payload.due_date
-      await api.post('/api/tasks', payload)
+
+      // Input is in minutes — convert to hours for storage and compute total_seconds
+      const mins = parseFloat(payload.minutes_logged) || 0
+      payload.hours_logged = parseFloat((mins / 60).toFixed(4))
+      payload.total_seconds = Math.round(mins * 60)
+      delete payload.minutes_logged
+
+      if (isEdit) {
+        await api.patch(`/api/tasks/${id}`, payload)
+      } else {
+        await api.post('/api/tasks', payload)
+      }
       navigate('/dev/logs')
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to save log')
@@ -40,18 +86,19 @@ export default function LogEntryForm() {
     task_title: '', description: '', track: '', dev_type_task: '',
     type_of_development: '', cd_number: '', functional_team: '',
     priority: 'medium', start_date: '', due_date: '',
+    status: 'pending', minutes_logged: '0'
   })
 
   return (
-    <Layout title="New Development Log" subtitle="Fill all required fields accurately">
+    <Layout title={isEdit ? "Edit Development Log" : "New Development Log"} subtitle={isEdit ? "Update your log entry details" : "Fill all required fields accurately"}>
       <div className="max-w-3xl mx-auto">
         <form onSubmit={submit}>
           <div className="card border-l-4 border-forest-600">
             {/* Header */}
             <div className="flex items-start justify-between mb-6">
               <div>
-                <h2 className="font-bold text-xl text-charcoal font-display">New Development Log Entry</h2>
-                <p className="text-xs text-muted mt-1">Fill all required fields. This log will be reviewed by your team lead.</p>
+                <h2 className="font-bold text-xl text-charcoal font-display">{isEdit ? 'Edit Development Log Entry' : 'New Development Log Entry'}</h2>
+                <p className="text-xs text-muted mt-1">{isEdit ? 'Modify the fields below to update this task log.' : 'Fill all required fields. This log will be reviewed by your team lead.'}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button type="button" onClick={() => navigate(-1)} className="btn-ghost">
@@ -70,21 +117,22 @@ export default function LogEntryForm() {
               </div>
             )}
 
-            {/* Auto-ticket info */}
-            <div className="mb-5 bg-forest-50 border border-forest-200 rounded-lg px-4 py-3 flex items-center gap-2">
-              <Info size={15} className="text-forest-600" />
-              <p className="text-xs text-forest-700">
-                A unique ticket ID <span className="font-bold">DT-XXXXX</span> will be auto-generated when you save this log.
-              </p>
-            </div>
+            {!isEdit && (
+              <div className="mb-5 bg-forest-50 border border-forest-200 rounded-lg px-4 py-3 flex items-center gap-2">
+                <Info size={15} className="text-forest-600" />
+                <p className="text-xs text-forest-700">
+                  A unique ticket ID <span className="font-bold">DT-XXXXX</span> will be auto-generated when you save this log.
+                </p>
+              </div>
+            )}
 
             {/* Fields grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
 
               {/* Track */}
               <div>
-                <label className="label">Track <span className="text-red-500">*</span></label>
-                <select className="select" value={form.track} onChange={e => set('track', e.target.value)} required>
+                <label className="label">Track</label>
+                <select className="select" value={form.track} onChange={e => set('track', e.target.value)}>
                   <option value="">Select Track</option>
                   {TRACKS.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
@@ -110,8 +158,8 @@ export default function LogEntryForm() {
 
               {/* Type of Development */}
               <div>
-                <label className="label">Type of Development <span className="text-red-500">*</span></label>
-                <select className="select" value={form.type_of_development} onChange={e => set('type_of_development', e.target.value)} required>
+                <label className="label">Type of Development</label>
+                <select className="select" value={form.type_of_development} onChange={e => set('type_of_development', e.target.value)}>
                   <option value="">Select Type</option>
                   {TYPE_OF_DEV.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
@@ -127,13 +175,12 @@ export default function LogEntryForm() {
 
               {/* Development Subject — full width */}
               <div className="md:col-span-2">
-                <label className="label">Development Subject <span className="text-red-500">*</span></label>
+                <label className="label">Development Subject</label>
                 <input
                   className="input"
                   placeholder="e.g. BPL Case Discount SOA and Invoice Print"
                   value={form.task_title}
                   onChange={e => set('task_title', e.target.value)}
-                  required
                 />
               </div>
 
@@ -187,6 +234,37 @@ export default function LogEntryForm() {
                 </div>
               </div>
 
+              {/* Status */}
+              <div>
+                <label className="label">Status</label>
+                <select className="select" value={form.status} onChange={e => set('status', e.target.value)}>
+                  <option value="pending">Pending</option>
+                  <option value="in_progress">WIP</option>
+                  <option value="completed">Completed</option>
+                  <option value="on_hold">Hold</option>
+                  <option value="fut">FUT</option>
+                </select>
+              </div>
+
+              {/* Time Logged (Minutes) */}
+              <div>
+                <label className="label">Time Logged (Minutes)</label>
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  className="input"
+                  placeholder="e.g. 90 (for 1.5 hours)"
+                  value={form.minutes_logged}
+                  onChange={e => set('minutes_logged', e.target.value)}
+                />
+                {form.minutes_logged > 0 && (
+                  <p className="text-[11px] text-muted mt-1">
+                    = {(parseFloat(form.minutes_logged || 0) / 60).toFixed(2)} hours
+                  </p>
+                )}
+              </div>
+
               {/* Remarks — full width */}
               <div className="md:col-span-2">
                 <label className="label">Remarks</label>
@@ -204,13 +282,13 @@ export default function LogEntryForm() {
 
             {/* Footer actions */}
             <div className="flex items-center justify-between mt-6 pt-5 border-t border-border">
-              <p className="text-xs text-muted"><span className="text-red-500">*</span> Required fields</p>
+              <p className="text-xs text-muted">All fields are optional. Leave empty to default.</p>
               <div className="flex items-center gap-3">
-                <button type="button" onClick={clear} className="btn-ghost text-muted">Clear Form</button>
+                {!isEdit && <button type="button" onClick={clear} className="btn-ghost text-muted">Clear Form</button>}
                 <button type="button" onClick={() => navigate(-1)} className="btn-outline">Cancel</button>
                 <button type="submit" disabled={loading} className="btn-primary disabled:opacity-60">
                   {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save size={15} />}
-                  {loading ? 'Saving...' : 'Submit Log'}
+                  {loading ? 'Saving...' : isEdit ? 'Save Changes' : 'Submit Log'}
                 </button>
               </div>
             </div>

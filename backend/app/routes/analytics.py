@@ -5,7 +5,7 @@ from datetime import datetime, date, timedelta
 from typing import Optional, List
 from app.core.database import get_db
 from app.core.security import get_current_user, require_admin_or_manager
-from app.models.models import TaskUpload, TaskSession, User
+from app.models import TaskUpload, TaskSession, User
 from app.services.utils import seconds_to_hours
 
 router = APIRouter(prefix="/api/analytics", tags=["Analytics"])
@@ -158,11 +158,21 @@ def admin_dashboard(
             TaskUpload.user_id == dev.id,
             TaskSession.started_at.between(week_start_dt, week_end_dt),
         ).all()
-        total_secs = sum(s.duration_seconds or 0 for s in sessions)
-        task_count = db.query(TaskUpload).filter(
+        timer_secs = sum(s.duration_seconds or 0 for s in sessions)
+
+        # Also count hours_logged from tasks that have no timer sessions (e.g. Excel imports)
+        dev_tasks_this_week = db.query(TaskUpload).filter(
             TaskUpload.user_id == dev.id,
             TaskUpload.created_at.between(week_start_dt, week_end_dt),
-        ).count()
+        ).all()
+        manual_secs = sum(
+            int(round(float(t.hours_logged) * 3600))
+            for t in dev_tasks_this_week
+            if (t.hours_logged or 0) > 0 and t.total_seconds == 0
+        )
+        total_secs = timer_secs + manual_secs
+
+        task_count = len(dev_tasks_this_week)
         dev_breakdown.append({
             "user_id": dev.id,
             "username": dev.username,
@@ -182,12 +192,19 @@ def admin_dashboard(
         if task.track:
             track_counts[task.track] = track_counts.get(task.track, 0) + 1
 
-    total_week_seconds = sum(
+    # Sum timer sessions + manual hours_logged (for excel imports with no sessions)
+    session_seconds = sum(
         s.duration_seconds or 0
         for s in db.query(TaskSession).filter(
             TaskSession.started_at.between(week_start_dt, week_end_dt)
         ).all()
     )
+    manual_seconds = sum(
+        int(round(float(t.hours_logged) * 3600))
+        for t in week_tasks
+        if (t.hours_logged or 0) > 0 and t.total_seconds == 0
+    )
+    total_week_seconds = session_seconds + manual_seconds
 
     total_users = db.query(User).filter(User.is_active == True).count()
 

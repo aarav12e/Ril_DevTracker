@@ -88,15 +88,10 @@ export default function ExcelUpload() {
     const fd = new FormData()
     fd.append('file', file)
     try {
-      const { data } = await api.get('/api/upload/validate', { data: fd, headers: { 'Content-Type': 'multipart/form-data' } })
+      const { data } = await api.post('/api/upload/validate', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       setValidation(data)
-    } catch {
-      // mock validation UI for now
-      setValidation({
-        total_rows: 12, valid_rows: 10, error_rows: 2, duplicate_rows: 1,
-        errors: [{ row: 3, error: 'Missing status value' }, { row: 7, error: 'Invalid priority: urgent' }],
-        preview: [],
-      })
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Dry-run validation failed. Please check the file formatting.')
     }
   }
 
@@ -133,8 +128,8 @@ export default function ExcelUpload() {
             <p className="text-sm font-semibold text-amber-800 mb-1">Format Requirements</p>
             <p className="text-xs text-amber-700">
               Ensure your Excel file follows the standard template. Required columns:
-              <span className="font-semibold"> Task Title, Status, Priority</span>.
-              Optional: Track, Dev Type, CD Number, Functional Team, Start Date, End Date, Hours Logged.
+              <span className="font-semibold"> Development Subject</span>.
+              Optional: Track, Dev Type, Type of Development, CD, Functional Team, Developers, Start Date, End Date, Time (Min), Status, Remarks.
             </p>
           </div>
           <button onClick={downloadTemplate} className="btn-amber text-xs flex-shrink-0">

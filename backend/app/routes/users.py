@@ -3,14 +3,14 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.core.database import get_db
 from app.core.security import get_current_user, require_admin, require_admin_or_manager, hash_password
-from app.models.models import User
-from app.schemas.schemas import UserCreate, UserUpdate, UserResponse
+from app.models import User
+from app.schemas import UserCreate, UserUpdate, UserResponse
 from app.core.config import settings
 
 router = APIRouter(prefix="/api/users", tags=["Users"])
 
 
-@router.get("/", response_model=List[UserResponse])
+@router.get("", response_model=List[UserResponse])
 def list_users(
     role: Optional[str] = None,
     is_active: Optional[bool] = None,
@@ -41,7 +41,7 @@ def get_user(
     return user
 
 
-@router.post("/", response_model=UserResponse)
+@router.post("", response_model=UserResponse)
 def create_user(
     payload: UserCreate,
     db: Session = Depends(get_db),

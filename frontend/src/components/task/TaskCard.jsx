@@ -1,4 +1,5 @@
-import { Play, Pause, CheckCircle, Zap } from 'lucide-react'
+import { Play, Pause, CheckCircle, Zap, Edit2 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import LiveTimer from './LiveTimer'
 import { TRACK_BADGE_MAP } from '../../utils/badges'
 
@@ -7,6 +8,7 @@ import { TRACK_BADGE_MAP } from '../../utils/badges'
  * Extracted from DevDashboard.jsx.
  */
 export default function TaskCard({ task, onStart, onPause, onResume, onComplete, onSwitch }) {
+  const navigate = useNavigate()
   const isActive    = task.timer_status === 'active'
   const isPaused    = task.timer_status === 'paused'
   const isCompleted = task.timer_status === 'completed'
@@ -76,6 +78,10 @@ export default function TaskCard({ task, onStart, onPause, onResume, onComplete,
           )}
 
           <div className="flex items-center gap-2 mt-2 justify-end">
+            <button onClick={() => navigate(`/dev/edit/${task.id}`)}
+              className="w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 transition-colors" title="Edit Task">
+              <Edit2 size={12} />
+            </button>
             {!isCompleted && !isActive && !isPaused && (
               <button onClick={() => onStart(task.id)} className="btn-primary text-xs py-1.5 px-3">
                 <Play size={12} /> Start

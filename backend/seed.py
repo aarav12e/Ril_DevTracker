@@ -8,11 +8,11 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from app.core.database import SessionLocal, engine
 from app.core.database import Base
-from app.models.models import User, Role, RolesConfig
+from app.models import User, Role, RolesConfig
 from app.core.security import hash_password
 
 # Import all models so Base knows about them
-import app.models.models  # noqa
+import app.models  # noqa
 
 
 def seed():

@@ -127,7 +127,7 @@ export default function AdminDashboard() {
               ) : tasks.map(t => (
                 <tr key={t.id} className="table-row">
                   <td className="table-cell"><span className="ticket">{t.ticket_id || '—'}</span></td>
-                  <td className="table-cell font-medium">{t.user_id}</td>
+                  <td className="table-cell font-medium">{t.developer_name || 'System'}</td>
                   <td className="table-cell max-w-[180px] truncate">{t.task_title}</td>
                   <td className="table-cell">{trackBadge(t.track)}</td>
                   <td className="table-cell text-muted text-xs">{t.type_of_development || '—'}</td>

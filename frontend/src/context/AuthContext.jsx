@@ -10,7 +10,6 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     if (token) {
-      api.defaults.headers.common['Authorization'] = `Bearer ${token}`
       api.get('/api/auth/me')
         .then(r => setUser(r.data))
         .catch(() => logout())
@@ -23,7 +22,6 @@ export function AuthProvider({ children }) {
   const login = async (username, password) => {
     const { data } = await api.post('/api/auth/login', { username, password })
     localStorage.setItem('dt_token', data.access_token)
-    api.defaults.headers.common['Authorization'] = `Bearer ${data.access_token}`
     setToken(data.access_token)
     setUser({ id: data.user_id, username: data.username, role: data.role, full_name: data.full_name })
     return data
@@ -31,7 +29,6 @@ export function AuthProvider({ children }) {
 
   const logout = () => {
     localStorage.removeItem('dt_token')
-    delete api.defaults.headers.common['Authorization']
     setToken(null)
     setUser(null)
   }

@@ -5,14 +5,14 @@ from typing import List, Optional
 from datetime import datetime, date
 from app.core.database import get_db
 from app.core.security import get_current_user, require_admin_or_manager
-from app.models.models import TaskUpload, User
-from app.schemas.schemas import TaskCreate, TaskUpdate, TaskResponse
+from app.models import TaskUpload, User
+from app.schemas import TaskCreate, TaskUpdate, TaskResponse
 from app.services.utils import generate_ticket_id
 
 router = APIRouter(prefix="/api/tasks", tags=["Tasks"])
 
 
-@router.get("/", response_model=List[TaskResponse])
+@router.get("", response_model=List[TaskResponse])
 def list_tasks(
     status: Optional[str] = None,
     priority: Optional[str] = None,
@@ -74,7 +74,7 @@ def get_task(
     return task
 
 
-@router.post("/", response_model=TaskResponse)
+@router.post("", response_model=TaskResponse)
 def create_task(
     payload: TaskCreate,
     db: Session = Depends(get_db),
@@ -96,6 +96,8 @@ def create_task(
         cd_number=payload.cd_number,
         functional_team=payload.functional_team,
         assigned_by=payload.assigned_by,
+        hours_logged=payload.hours_logged or 0.0,
+        total_seconds=payload.total_seconds or (int(round((payload.hours_logged or 0) * 3600))),
         upload_source="manual",
         status="pending",
         timer_status="idle",
@@ -120,8 +122,16 @@ def update_task(
     if current_user.role in ("developer", "intern") and task.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Cannot edit another user's task")
 
-    for field, value in payload.model_dump(exclude_none=True).items():
-        setattr(task, field, value)
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        if field == "hours_logged":
+            if value is not None:
+                task.hours_logged = value
+                task.total_seconds = int(float(value) * 3600)
+            else:
+                task.hours_logged = 0.00
+                task.total_seconds = 0
+        else:
+            setattr(task, field, value)
 
     if payload.status == "completed" and not task.completed_at:
         task.completed_at = datetime.utcnow()

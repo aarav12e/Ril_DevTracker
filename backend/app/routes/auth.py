@@ -6,8 +6,8 @@ from app.core.security import (
     get_current_user, require_admin
 )
 from app.core.config import settings
-from app.models.models import User, Role
-from app.schemas.schemas import LoginRequest, TokenResponse, UserCreate, UserResponse
+from app.models import User, Role
+from app.schemas import LoginRequest, TokenResponse, UserCreate, UserResponse
 
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
 

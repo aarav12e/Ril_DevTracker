@@ -5,7 +5,7 @@ import api from '../../api/axios'
 import LoadingSpinner from '../../components/shared/LoadingSpinner'
 import EmptyState from '../../components/shared/EmptyState'
 import { statusBadge, timerBadge, trackBadge } from '../../utils/badges'
-import { Plus, Search, Play, CheckCircle, ClipboardList } from 'lucide-react'
+import { Plus, Search, Play, CheckCircle, ClipboardList, Edit2 } from 'lucide-react'
 
 const STATUS_TABS = [['', 'All'], ['pending', 'Pending'], ['in_progress', 'WIP'], ['completed', 'Done'], ['on_hold', 'Hold']]
 
@@ -78,7 +78,7 @@ export default function MyLogs() {
             <table className="w-full">
               <thead>
                 <tr className="table-header">
-                  {['Ticket', 'Track', 'Development Subject', 'Type', 'CD', 'Team', 'Status', 'Timer', 'Hours', 'Actions'].map(h => (
+                  {['Ticket', 'Track', 'Development Subject', 'Type', 'CD', 'Team', 'Status', 'Timer', 'Time (Min)', 'Actions'].map(h => (
                     <th key={h} className="table-cell text-left font-bold text-xs text-forest-700 uppercase tracking-wider whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -92,24 +92,27 @@ export default function MyLogs() {
                     colSpan={10}
                   />
                 ) : filtered.map(t => {
-                  const hrs  = Math.floor((t.total_seconds || 0) / 3600)
-                  const mins = Math.floor(((t.total_seconds || 0) % 3600) / 60)
+                  const totalMins = Math.round((t.total_seconds || 0) / 60)
                   return (
                     <tr key={t.id} className={`table-row ${t.timer_status === 'active' ? 'bg-emerald-50/40' : ''} ${t.track === 'PROD' ? 'bg-red-50/20' : ''}`}>
                       <td className="table-cell"><span className="ticket">{t.ticket_id || '—'}</span></td>
                       <td className="table-cell">{trackBadge(t.track)}</td>
-                      <td className="table-cell max-w-[200px]">
-                        <p className="font-semibold text-charcoal text-sm truncate">{t.task_title}</p>
-                        {t.description && <p className="text-xs text-muted truncate">{t.description}</p>}
+                      <td className="table-cell min-w-[220px] max-w-[340px] whitespace-normal break-words">
+                        <p className="font-semibold text-charcoal text-sm">{t.task_title}</p>
+                        {t.description && <p className="text-xs text-muted mt-1 whitespace-normal break-words">{t.description}</p>}
                       </td>
-                      <td className="table-cell text-xs text-muted whitespace-nowrap">{t.type_of_development || '—'}</td>
-                      <td className="table-cell text-xs text-muted">{t.cd_number || '—'}</td>
-                      <td className="table-cell text-xs text-muted">{t.functional_team || '—'}</td>
+                      <td className="table-cell text-xs text-muted min-w-[140px] whitespace-normal break-words">{t.type_of_development || '—'}</td>
+                      <td className="table-cell text-xs text-muted min-w-[100px] whitespace-normal break-words">{t.cd_number || '—'}</td>
+                      <td className="table-cell text-xs text-muted min-w-[100px] whitespace-normal break-words">{t.functional_team || '—'}</td>
                       <td className="table-cell">{statusBadge(t.status)}</td>
                       <td className="table-cell">{timerBadge(t.timer_status)}</td>
-                      <td className="table-cell font-semibold text-forest-600 whitespace-nowrap">{hrs}h {mins}m</td>
+                      <td className="table-cell font-semibold text-forest-600 whitespace-nowrap">{totalMins} min</td>
                       <td className="table-cell">
                         <div className="flex items-center gap-1">
+                          <button onClick={() => navigate(`/dev/edit/${t.id}`)}
+                            className="w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 transition-colors" title="Edit Log">
+                            <Edit2 size={12} />
+                          </button>
                           {t.timer_status === 'idle' && (
                             <button onClick={() => timerAction('start', t.id)}
                               className="w-7 h-7 rounded-lg hover:bg-forest-50 flex items-center justify-center text-forest-600 transition-colors" title="Start">

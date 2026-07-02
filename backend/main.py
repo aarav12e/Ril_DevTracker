@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import Base, engine
-import app.models.models  # noqa — registers all models with Base
+import app.models  # noqa — registers all models with Base
 
 # ── Import all routers ─────────────────────────────────────────
 from app.routes.auth import router as auth_router

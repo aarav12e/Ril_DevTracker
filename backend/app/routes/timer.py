@@ -4,8 +4,8 @@ from sqlalchemy import and_
 from datetime import datetime
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.models.models import TaskUpload, TaskSession
-from app.schemas.schemas import TimerActionResponse, TimerStatusResponse
+from app.models import TaskUpload, TaskSession
+from app.schemas import TimerActionResponse, TimerStatusResponse
 
 router = APIRouter(prefix="/api/timer", tags=["Timer"])
 

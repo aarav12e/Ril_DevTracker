@@ -2,14 +2,14 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.models.models import Notification
-from app.schemas.schemas import NotificationResponse
+from app.models import Notification
+from app.schemas import NotificationResponse
 from typing import List
 
 router = APIRouter(prefix="/api/notifications", tags=["Notifications"])
 
 
-@router.get("/", response_model=List[NotificationResponse])
+@router.get("", response_model=List[NotificationResponse])
 def get_notifications(
     unread_only: bool = False,
     db: Session = Depends(get_db),

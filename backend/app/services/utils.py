@@ -2,14 +2,13 @@ import random
 import string
 from datetime import datetime
 from sqlalchemy.orm import Session
-from app.models.models import TaskUpload, Notification, User
+from app.models import TaskUpload, Notification, User
 
 
 def generate_ticket_id(db: Session) -> str:
-    """Generate a unique DT-XXXXX ticket ID."""
+    """Generate a unique 5-character alphanumeric ticket ID."""
     while True:
-        suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=5))
-        ticket = f"DT-{suffix}"
+        ticket = "".join(random.choices(string.ascii_uppercase + string.digits, k=5))
         exists = db.query(TaskUpload).filter(TaskUpload.ticket_id == ticket).first()
         if not exists:
             return ticket

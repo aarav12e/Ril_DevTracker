@@ -7,7 +7,7 @@ import pandas as pd
 import io
 from app.core.database import get_db
 from app.core.security import get_current_user, require_admin
-from app.models.models import Role, RolesConfig, TaskUpload, User
+from app.models import Role, RolesConfig, TaskUpload, User
 
 router = APIRouter(prefix="/api/config", tags=["Config & Export"])
 

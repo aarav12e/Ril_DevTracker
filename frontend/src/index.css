@@ -63,7 +63,7 @@
 
   /* ── Badges ── */
   .badge {
-    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold;
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap;
   }
   .badge-green  { @apply badge bg-emerald-100 text-emerald-700; }
   .badge-amber  { @apply badge bg-amber-100 text-amber-700; }

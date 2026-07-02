@@ -1,13 +1,6 @@
 // ─── Track & Development Constants ───────────────────────────────────────────
 export const TRACKS = [
   'RFH',
-  'BPL',
-  'SAP',
-  'NON_SAP',
-  'PROD',
-  'MEETING',
-  'CODE_REVIEW',
-  'RESEARCH',
 ]
 
 export const DEV_TYPES = ['SAP', 'Non-SAP']
@@ -34,6 +27,7 @@ export const STATUS_COLORS = {
   in_progress: '#C9A84C',
   pending:     '#94A3B8',
   on_hold:     '#EF4444',
+  fut:         '#8B5CF6',
 }
 
 export const TRACK_COLORS = [

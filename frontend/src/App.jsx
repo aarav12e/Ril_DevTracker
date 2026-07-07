@@ -1,15 +1,16 @@
 import { Suspense, lazy } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
+import { ToastProvider } from './context/ToastContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import LoadingSpinner from './components/shared/LoadingSpinner'
+import ToastContainer from './components/shared/ToastContainer'
 
 // Lazy-loaded auth pages
 const Login = lazy(() => import('./pages/auth/Login'))
 
 // Lazy-loaded admin pages
 const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'))
-const AdminLogs = lazy(() => import('./pages/admin/AdminLogs'))
 const UserManagement = lazy(() => import('./pages/admin/UserManagement'))
 const ExcelUpload = lazy(() => import('./pages/admin/ExcelUpload'))
 const Reports = lazy(() => import('./pages/admin/Reports'))
@@ -32,13 +33,14 @@ function RootRedirect() {
 export default function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <Suspense fallback={
-          <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-            <LoadingSpinner size="lg" />
-          </div>
-        }>
-          <Routes>
+      <ToastProvider>
+        <AuthProvider>
+          <Suspense fallback={
+            <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+              <LoadingSpinner size="lg" />
+            </div>
+          }>
+            <Routes>
             {/* Public */}
             <Route path="/login" element={<Login />} />
             <Route path="/" element={<RootRedirect />} />
@@ -46,9 +48,6 @@ export default function App() {
             {/* Admin routes */}
             <Route path="/admin" element={
               <ProtectedRoute roles={['admin','manager']}><AdminDashboard /></ProtectedRoute>
-            }/>
-            <Route path="/admin/logs" element={
-              <ProtectedRoute roles={['admin','manager']}><AdminLogs /></ProtectedRoute>
             }/>
             <Route path="/admin/users" element={
               <ProtectedRoute roles={['admin','manager']}><UserManagement /></ProtectedRoute>
@@ -87,7 +86,9 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
+        <ToastContainer />
       </AuthProvider>
-    </BrowserRouter>
+    </ToastProvider>
+  </BrowserRouter>
   )
 }

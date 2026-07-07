@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 from typing import List, Optional
-from app.core.database import get_db
+from app.core.database import get_db, get_next_sequence_value
 from app.core.security import get_current_user, require_admin, require_admin_or_manager, hash_password
 from app.models import User
 from app.schemas import UserCreate, UserUpdate, UserResponse
@@ -14,37 +13,39 @@ router = APIRouter(prefix="/api/users", tags=["Users"])
 def list_users(
     role: Optional[str] = None,
     is_active: Optional[bool] = None,
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
     _=Depends(require_admin_or_manager),
 ):
-    query = db.query(User)
+    filt = {}
     if role:
-        query = query.filter(User.role == role)
+        filt["role"] = role
     if is_active is not None:
-        query = query.filter(User.is_active == is_active)
-    return query.order_by(User.created_at.desc()).all()
+        filt["is_active"] = is_active
+        
+    cursor = db.users.find(filt).sort("created_at", -1)
+    return [User(**u) for u in cursor]
 
 
 @router.get("/{user_id}", response_model=UserResponse)
 def get_user(
     user_id: int,
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     # Users can only view themselves unless admin/manager
     if current_user.role not in ("admin", "manager") and current_user.id != user_id:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
+    user_dict = db.users.find_one({"id": user_id})
+    if not user_dict:
         raise HTTPException(status_code=404, detail="User not found")
-    return user
+    return User(**user_dict)
 
 
 @router.post("", response_model=UserResponse)
 def create_user(
     payload: UserCreate,
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
     _=Depends(require_admin),
 ):
     if payload.email:
@@ -52,10 +53,12 @@ def create_user(
         if domain not in settings.allowed_domain_list:
             raise HTTPException(status_code=400, detail=f"Domain @{domain} not allowed")
 
-    if db.query(User).filter(User.username == payload.username).first():
+    if db.users.find_one({"username": payload.username}):
         raise HTTPException(status_code=400, detail="Username already taken")
 
+    user_id = get_next_sequence_value("user_id")
     user = User(
+        id=user_id,
         username=payload.username,
         email=payload.email,
         password_hash=hash_password(payload.password),
@@ -64,9 +67,7 @@ def create_user(
         dev_type=payload.dev_type,
         domain=payload.email.split("@")[-1] if payload.email else payload.domain,
     )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
+    db.users.insert_one(user.to_dict())
     return user
 
 
@@ -74,34 +75,36 @@ def create_user(
 def update_user(
     user_id: int,
     payload: UserUpdate,
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
     _=Depends(require_admin),
 ):
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
+    user_dict = db.users.find_one({"id": user_id})
+    if not user_dict:
         raise HTTPException(status_code=404, detail="User not found")
 
-    for field, value in payload.model_dump(exclude_none=True).items():
-        setattr(user, field, value)
+    update_data = payload.model_dump(exclude_none=True)
+    if "password" in update_data:
+        update_data["password_hash"] = hash_password(update_data.pop("password"))
 
-    db.commit()
-    db.refresh(user)
-    return user
+    if update_data:
+        db.users.update_one({"id": user_id}, {"$set": update_data})
+        user_dict.update(update_data)
+
+    return User(**user_dict)
 
 
 @router.delete("/{user_id}")
 def deactivate_user(
     user_id: int,
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
     current_user=Depends(require_admin),
 ):
     if current_user.id == user_id:
         raise HTTPException(status_code=400, detail="Cannot deactivate yourself")
 
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
+    user_dict = db.users.find_one({"id": user_id})
+    if not user_dict:
         raise HTTPException(status_code=404, detail="User not found")
 
-    user.is_active = False
-    db.commit()
-    return {"message": f"User '{user.username}' deactivated successfully"}
+    db.users.update_one({"id": user_id}, {"$set": {"is_active": False}})
+    return {"message": f"User '{user_dict['username']}' deactivated successfully"}

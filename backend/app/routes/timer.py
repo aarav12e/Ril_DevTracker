@@ -1,8 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from sqlalchemy import and_
 from datetime import datetime
-from app.core.database import get_db
+from app.core.database import get_db, get_next_sequence_value
 from app.core.security import get_current_user
 from app.models import TaskUpload, TaskSession
 from app.schemas import TimerActionResponse, TimerStatusResponse
@@ -10,45 +8,58 @@ from app.schemas import TimerActionResponse, TimerStatusResponse
 router = APIRouter(prefix="/api/timer", tags=["Timer"])
 
 
-def _get_owned_task(task_id: int, user_id: int, db: Session) -> TaskUpload:
-    task = db.query(TaskUpload).filter(TaskUpload.id == task_id).first()
-    if not task:
+def _get_owned_task(task_id: int, user_id: int, db) -> TaskUpload:
+    task_dict = db.task_uploads.find_one({"id": task_id})
+    if not task_dict:
         raise HTTPException(status_code=404, detail="Task not found")
+    task = TaskUpload(**task_dict)
     if task.user_id != user_id:
         raise HTTPException(status_code=403, detail="Not your task")
     return task
 
 
-def _pause_active_tasks(user_id: int, db: Session):
+def _pause_active_tasks(user_id: int, db):
     """Pause any currently active task for this user."""
-    active_tasks = db.query(TaskUpload).filter(
-        TaskUpload.user_id == user_id,
-        TaskUpload.timer_status == "active",
-    ).all()
+    cursor = db.task_uploads.find({
+        "user_id": user_id,
+        "timer_status": "active",
+    })
 
-    for task in active_tasks:
-        # Find the open session and close it
-        open_session = db.query(TaskSession).filter(
-            TaskSession.task_id == task.id,
-            TaskSession.ended_at == None,
-            TaskSession.paused_at == None,
-        ).first()
+    for t_dict in cursor:
+        task_id = t_dict["id"]
+        # Find open session
+        open_session = db.task_sessions.find_one({
+            "task_id": task_id,
+            "ended_at": None,
+            "paused_at": None,
+        })
 
         if open_session:
             now = datetime.utcnow()
-            elapsed = int((now - open_session.started_at).total_seconds())
-            open_session.paused_at = now
-            open_session.duration_seconds = elapsed
-            task.total_seconds += elapsed
-
-        task.timer_status = "paused"
-        task.status = "in_progress"
+            started_at = open_session["started_at"]
+            if isinstance(started_at, str):
+                started_at = datetime.fromisoformat(started_at)
+            elapsed = int((now - started_at).total_seconds())
+            
+            db.task_sessions.update_one(
+                {"id": open_session["id"]},
+                {"$set": {"paused_at": now, "duration_seconds": elapsed}}
+            )
+            db.task_uploads.update_one(
+                {"id": task_id},
+                {"$inc": {"total_seconds": elapsed}, "$set": {"timer_status": "paused", "status": "in_progress"}}
+            )
+        else:
+            db.task_uploads.update_one(
+                {"id": task_id},
+                {"$set": {"timer_status": "paused", "status": "in_progress"}}
+            )
 
 
 @router.post("/start/{task_id}", response_model=TimerActionResponse)
 def start_timer(
     task_id: int,
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     task = _get_owned_task(task_id, current_user.id, db)
@@ -58,24 +69,25 @@ def start_timer(
     if task.timer_status == "active":
         raise HTTPException(status_code=400, detail="Timer already running")
 
-    # Pause any other active task first (only one active at a time)
+    # Pause any other active task first
     _pause_active_tasks(current_user.id, db)
 
-    # Count existing sessions
-    session_count = db.query(TaskSession).filter(TaskSession.task_id == task_id).count()
+    session_count = db.task_sessions.count_documents({"task_id": task_id})
+    session_id = get_next_sequence_value("session_id")
 
     session = TaskSession(
+        id=session_id,
         task_id=task_id,
         user_id=current_user.id,
         session_number=session_count + 1,
         started_at=datetime.utcnow(),
     )
-    db.add(session)
+    db.task_sessions.insert_one(session.to_dict())
 
-    task.timer_status = "active"
-    task.status = "in_progress"
-    db.commit()
-    db.refresh(session)
+    db.task_uploads.update_one(
+        {"id": task_id},
+        {"$set": {"timer_status": "active", "status": "in_progress"}}
+    )
 
     return TimerActionResponse(
         task_id=task.id,
@@ -90,7 +102,7 @@ def start_timer(
 @router.post("/pause/{task_id}", response_model=TimerActionResponse)
 def pause_timer(
     task_id: int,
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     task = _get_owned_task(task_id, current_user.id, db)
@@ -98,21 +110,33 @@ def pause_timer(
     if task.timer_status != "active":
         raise HTTPException(status_code=400, detail="Timer is not running")
 
-    open_session = db.query(TaskSession).filter(
-        TaskSession.task_id == task_id,
-        TaskSession.ended_at == None,
-        TaskSession.paused_at == None,
-    ).first()
+    open_session = db.task_sessions.find_one({
+        "task_id": task_id,
+        "ended_at": None,
+        "paused_at": None,
+    })
 
     now = datetime.utcnow()
     if open_session:
-        elapsed = int((now - open_session.started_at).total_seconds())
-        open_session.paused_at = now
-        open_session.duration_seconds = elapsed
+        started_at = open_session["started_at"]
+        if isinstance(started_at, str):
+            started_at = datetime.fromisoformat(started_at)
+        elapsed = int((now - started_at).total_seconds())
+        
+        db.task_sessions.update_one(
+            {"id": open_session["id"]},
+            {"$set": {"paused_at": now, "duration_seconds": elapsed}}
+        )
+        db.task_uploads.update_one(
+            {"id": task_id},
+            {"$inc": {"total_seconds": elapsed}, "$set": {"timer_status": "paused"}}
+        )
         task.total_seconds += elapsed
-
-    task.timer_status = "paused"
-    db.commit()
+    else:
+        db.task_uploads.update_one(
+            {"id": task_id},
+            {"$set": {"timer_status": "paused"}}
+        )
 
     return TimerActionResponse(
         task_id=task.id,
@@ -126,7 +150,7 @@ def pause_timer(
 @router.post("/resume/{task_id}", response_model=TimerActionResponse)
 def resume_timer(
     task_id: int,
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     task = _get_owned_task(task_id, current_user.id, db)
@@ -139,19 +163,22 @@ def resume_timer(
     # Pause any currently active task
     _pause_active_tasks(current_user.id, db)
 
-    # New session for the resume
-    session_count = db.query(TaskSession).filter(TaskSession.task_id == task_id).count()
+    session_count = db.task_sessions.count_documents({"task_id": task_id})
+    session_id = get_next_sequence_value("session_id")
+    
     session = TaskSession(
+        id=session_id,
         task_id=task_id,
         user_id=current_user.id,
         session_number=session_count + 1,
         started_at=datetime.utcnow(),
     )
-    db.add(session)
+    db.task_sessions.insert_one(session.to_dict())
 
-    task.timer_status = "active"
-    db.commit()
-    db.refresh(session)
+    db.task_uploads.update_one(
+        {"id": task_id},
+        {"$set": {"timer_status": "active"}}
+    )
 
     return TimerActionResponse(
         task_id=task.id,
@@ -166,46 +193,59 @@ def resume_timer(
 @router.post("/complete/{task_id}", response_model=TimerActionResponse)
 def complete_task(
     task_id: int,
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     task = _get_owned_task(task_id, current_user.id, db)
 
-    # Close any open session
-    open_session = db.query(TaskSession).filter(
-        TaskSession.task_id == task_id,
-        TaskSession.ended_at == None,
-    ).first()
+    open_session = db.task_sessions.find_one({
+        "task_id": task_id,
+        "ended_at": None,
+    })
 
     now = datetime.utcnow()
     if open_session:
-        elapsed = int((now - open_session.started_at).total_seconds())
-        open_session.ended_at = now
-        open_session.duration_seconds = elapsed
+        started_at = open_session["started_at"]
+        if isinstance(started_at, str):
+            started_at = datetime.fromisoformat(started_at)
+        elapsed = int((now - started_at).total_seconds())
+        
+        db.task_sessions.update_one(
+            {"id": open_session["id"]},
+            {"$set": {"ended_at": now, "duration_seconds": elapsed}}
+        )
+        db.task_uploads.update_one(
+            {"id": task_id},
+            {"$inc": {"total_seconds": elapsed}}
+        )
         task.total_seconds += elapsed
 
-    task.timer_status = "completed"
-    task.status = "completed"
-    task.completed_at = now
-    task.hours_logged = round(task.total_seconds / 3600, 2)
-    db.commit()
+    hours_logged = round(task.total_seconds / 3600, 2)
+    db.task_uploads.update_one(
+        {"id": task_id},
+        {"$set": {
+            "timer_status": "completed",
+            "status": "completed",
+            "completed_at": now,
+            "hours_logged": hours_logged
+        }}
+    )
 
     return TimerActionResponse(
         task_id=task.id,
         ticket_id=task.ticket_id,
         timer_status="completed",
         total_seconds=task.total_seconds,
-        message=f"Task {task.ticket_id} marked complete. Total: {task.hours_logged}h",
+        message=f"Task {task.ticket_id} marked complete. Total: {hours_logged}h",
     )
 
 
 @router.post("/switch/{task_id}", response_model=TimerActionResponse)
 def switch_to_task(
     task_id: int,
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Pause current active task and start this one."""
     task = _get_owned_task(task_id, current_user.id, db)
 
     if task.timer_status == "completed":
@@ -213,19 +253,22 @@ def switch_to_task(
 
     _pause_active_tasks(current_user.id, db)
 
-    session_count = db.query(TaskSession).filter(TaskSession.task_id == task_id).count()
+    session_count = db.task_sessions.count_documents({"task_id": task_id})
+    session_id = get_next_sequence_value("session_id")
+    
     session = TaskSession(
+        id=session_id,
         task_id=task_id,
         user_id=current_user.id,
         session_number=session_count + 1,
         started_at=datetime.utcnow(),
     )
-    db.add(session)
+    db.task_sessions.insert_one(session.to_dict())
 
-    task.timer_status = "active"
-    task.status = "in_progress"
-    db.commit()
-    db.refresh(session)
+    db.task_uploads.update_one(
+        {"id": task_id},
+        {"$set": {"timer_status": "active", "status": "in_progress"}}
+    )
 
     return TimerActionResponse(
         task_id=task.id,
@@ -240,19 +283,21 @@ def switch_to_task(
 @router.get("/status/{task_id}", response_model=TimerStatusResponse)
 def get_timer_status(
     task_id: int,
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     task = _get_owned_task(task_id, current_user.id, db)
-    sessions = db.query(TaskSession).filter(TaskSession.task_id == task_id).all()
+    sessions = list(db.task_sessions.find({"task_id": task_id}))
 
-    # Calculate current session seconds if active
     current_session_seconds = 0
     if task.timer_status == "active":
-        open_session = next((s for s in sessions if not s.ended_at and not s.paused_at), None)
+        open_session = next((s for s in sessions if not s.get("ended_at") and not s.get("paused_at")), None)
         if open_session:
+            started_at = open_session["started_at"]
+            if isinstance(started_at, str):
+                started_at = datetime.fromisoformat(started_at)
             current_session_seconds = int(
-                (datetime.utcnow() - open_session.started_at).total_seconds()
+                (datetime.utcnow() - started_at).total_seconds()
             )
 
     return TimerStatusResponse(
@@ -268,27 +313,30 @@ def get_timer_status(
 
 @router.get("/active/me")
 def get_my_active_task(
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Returns the currently active task for the logged-in user."""
-    task = db.query(TaskUpload).filter(
-        TaskUpload.user_id == current_user.id,
-        TaskUpload.timer_status == "active",
-    ).first()
+    task_dict = db.task_uploads.find_one({
+        "user_id": current_user.id,
+        "timer_status": "active",
+    })
 
-    if not task:
+    if not task_dict:
         return {"active_task": None}
 
-    open_session = db.query(TaskSession).filter(
-        TaskSession.task_id == task.id,
-        TaskSession.ended_at == None,
-        TaskSession.paused_at == None,
-    ).first()
+    task = TaskUpload(**task_dict)
+    open_session = db.task_sessions.find_one({
+        "task_id": task.id,
+        "ended_at": None,
+        "paused_at": None,
+    })
 
     current_secs = 0
     if open_session:
-        current_secs = int((datetime.utcnow() - open_session.started_at).total_seconds())
+        started_at = open_session["started_at"]
+        if isinstance(started_at, str):
+            started_at = datetime.fromisoformat(started_at)
+        current_secs = int((datetime.utcnow() - started_at).total_seconds())
 
     return {
         "active_task": {

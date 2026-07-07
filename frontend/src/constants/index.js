@@ -3,15 +3,32 @@ export const TRACKS = [
   'RFH',
 ]
 
-export const DEV_TYPES = ['SAP', 'Non-SAP']
+export const MODULES = [
+  'Medication',
+  'FICO',
+  'Patient Management',
+  'Azure',
+  'Clinical Operations',
+  'Diet',
+  'Materials Management',
+]
+
+export const CATEGORIES = [
+  'Modification',
+  'Implementation',
+  'Debugging',
+  'Creation',
+  'Discussion',
+  'Dev Status Call',
+  'Code Review',
+  'Learning',
+]
+
+export const DEV_TYPES = ['SAP-ISH', 'SAP-FICO', 'SAP-MHEA', 'Open Source']
 
 export const TYPE_OF_DEV = [
-  'Development',
-  'Code Review',
+  'Change Request',
   'Production Issue',
-  'Development Status Call',
-  'Discussion',
-  'Debugging',
 ]
 
 export const PRIORITIES = ['low', 'medium', 'high']

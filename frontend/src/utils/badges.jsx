@@ -5,14 +5,20 @@
 
 /**
  * Returns a styled badge element for a task status value.
- * @param {string} s  - 'completed' | 'in_progress' | 'pending' | 'on_hold'
+ * @param {string} s  - 'wip' | 'fut' | 'prod' | 'hold_functional' | 'hold_developer'
  */
 export function statusBadge(s) {
   const map = {
-    completed:   <span className="badge-green">✓ Done</span>,
-    in_progress: <span className="badge-amber">● WIP</span>,
-    pending:     <span className="badge-gray">○ Pending</span>,
-    on_hold:     <span className="badge-red">⏸ Hold</span>,
+    wip:              <span className="badge-amber">● WIP</span>,
+    fut:              <span className="badge-purple">◇ FUT</span>,
+    prod:             <span className="badge-green">✓ PROD</span>,
+    hold_functional:  <span className="badge-red">⏸ Hold – Functional</span>,
+    hold_developer:   <span className="badge-red">⏸ Hold – Developer</span>,
+    // legacy values (for existing data)
+    completed:        <span className="badge-green">✓ PROD</span>,
+    in_progress:      <span className="badge-amber">● WIP</span>,
+    pending:          <span className="badge-gray">○ Pending</span>,
+    on_hold:          <span className="badge-red">⏸ Hold</span>,
   }
   return map[s] ?? <span className="badge-gray">{s}</span>
 }
@@ -23,10 +29,16 @@ export function statusBadge(s) {
  */
 export function statusClass(s) {
   return {
-    completed:   'badge-green',
-    in_progress: 'badge-amber',
-    pending:     'badge-gray',
-    on_hold:     'badge-red',
+    wip:             'badge-amber',
+    fut:             'badge-purple',
+    prod:            'badge-green',
+    hold_functional: 'badge-red',
+    hold_developer:  'badge-red',
+    // legacy
+    completed:       'badge-green',
+    in_progress:     'badge-amber',
+    pending:         'badge-gray',
+    on_hold:         'badge-red',
   }[s] || 'badge-gray'
 }
 

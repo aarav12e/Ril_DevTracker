@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import Layout from '../../components/layout/Layout'
 import api from '../../api/axios'
 import { Upload, FileText, AlertTriangle, CheckCircle, Download, X, Table } from 'lucide-react'
+import { useToast } from '../../context/ToastContext'
 
 // ─── Upload History sub-component ─────────────────────────────────────────────
 
@@ -63,6 +64,7 @@ function UploadHistory() {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ExcelUpload() {
+  const { toast } = useToast()
   const [file, setFile] = useState(null)
   const [dragging, setDragging] = useState(false)
   const [validation, setValidation] = useState(null)
@@ -114,7 +116,7 @@ export default function ExcelUpload() {
       const res = await api.get('/api/upload/template', { responseType: 'blob' })
       const url = URL.createObjectURL(res.data)
       const a = document.createElement('a'); a.href = url; a.download = 'devtracker_template.xlsx'; a.click()
-    } catch { alert('Template download failed') }
+    } catch { toast.error('Template download failed') }
   }
 
   return (

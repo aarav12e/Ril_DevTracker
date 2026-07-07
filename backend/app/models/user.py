@@ -1,40 +1,35 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime
-from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
-from app.core.database import Base
-import enum
+from datetime import datetime
 
+class User:
+    def __init__(self, **kwargs):
+        self.id = kwargs.get("id")
+        self.username = kwargs.get("username")
+        self.email = kwargs.get("email")
+        self.password_hash = kwargs.get("password_hash")
+        self.full_name = kwargs.get("full_name")
+        self.role = kwargs.get("role")
+        self.dev_type = kwargs.get("dev_type")
+        self.domain = kwargs.get("domain")
+        self.is_active = kwargs.get("is_active", True)
+        created_at = kwargs.get("created_at")
+        if isinstance(created_at, str):
+            try:
+                self.created_at = datetime.fromisoformat(created_at)
+            except:
+                self.created_at = datetime.utcnow()
+        else:
+            self.created_at = created_at or datetime.utcnow()
 
-class DevTypeEnum(str, enum.Enum):
-    python = "python"
-    angular = "angular"
-    react = "react"
-    node = "node"
-    sap = "sap"
-    other = "other"
-
-
-class User(Base):
-    __tablename__ = "users"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    username = Column(String(100), nullable=False, unique=True)
-    email = Column(String(255), nullable=True, unique=True)
-    password_hash = Column(String(255), nullable=False)
-    full_name = Column(String(200), nullable=True)
-    role = Column(String(50), nullable=False)          # FK by value to roles.name
-    dev_type = Column(String(50), nullable=False)
-    domain = Column(String(100), nullable=True)
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, server_default=func.now())
-
-    # Relationships
-    tasks = relationship("TaskUpload", back_populates="user", foreign_keys="TaskUpload.user_id")
-    uploads = relationship("UploadHistory", back_populates="uploader")
-    timer_sessions = relationship("TaskSession", back_populates="user")
-    notifications_received = relationship(
-        "Notification", back_populates="recipient", foreign_keys="Notification.recipient_id"
-    )
-    notifications_triggered = relationship(
-        "Notification", back_populates="triggered_by_user", foreign_keys="Notification.triggered_by"
-    )
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "username": self.username,
+            "email": self.email,
+            "password_hash": self.password_hash,
+            "full_name": self.full_name,
+            "role": self.role,
+            "dev_type": self.dev_type,
+            "domain": self.domain,
+            "is_active": self.is_active,
+            "created_at": self.created_at,
+        }

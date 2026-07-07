@@ -9,9 +9,11 @@ import TaskCard from '../../components/task/TaskCard'
 import QuickAddForm from '../../components/task/QuickAddForm'
 import { statusBadge, trackBadge } from '../../utils/badges'
 import { Plus, Clock, Zap, ListChecks, Timer, Play, CheckCircle } from 'lucide-react'
+import { useToast } from '../../context/ToastContext'
 
 export default function DevDashboard() {
   const { user } = useAuth()
+  const { toast } = useToast()
   const navigate = useNavigate()
   const [dashData, setDashData] = useState(null)
   const [tasks, setTasks] = useState([])
@@ -36,7 +38,7 @@ export default function DevDashboard() {
       await api.post(`/api/timer/${action}/${taskId}`)
       fetchAll()
     } catch (e) {
-      alert(e.response?.data?.detail || 'Timer error')
+      toast.error(e.response?.data?.detail || 'Timer error')
     }
   }
 
@@ -46,8 +48,13 @@ export default function DevDashboard() {
   }
 
   const activeTasks  = tasks.filter(t => t.timer_status === 'active' || t.timer_status === 'paused')
-  const idleTasks    = tasks.filter(t => t.timer_status === 'idle').slice(0, 3)
+  const idleTasks    = tasks.filter(t => t.timer_status === 'idle' && t.status !== 'completed' && t.status !== 'done').slice(0, 3)
   const recentTasks  = tasks.slice(0, 10)
+
+  const todayMins = Math.round((dashData?.kpis?.total_seconds_today || 0) / 60)
+  const todayHrs = Math.floor(todayMins / 60)
+  const todayRemainingMins = todayMins % 60
+  const todayFormatted = todayHrs > 0 ? `${todayHrs}h ${todayRemainingMins}m` : `${todayRemainingMins}m`
 
   const totalTodaySecs = dashData?.today_breakdown?.reduce((a, t) => a + t.seconds_today, 0) || 0
   const maxSecs        = Math.max(...(dashData?.today_breakdown || []).map(t => t.seconds_today), 1)
@@ -91,19 +98,16 @@ export default function DevDashboard() {
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                 <span className="text-white/70 text-xs">Timer running</span>
               </div>
-              <LiveTimer baseSeconds={dashData.active_task.total_seconds || 0} running={true} />
+              <LiveTimer baseSeconds={dashData.active_task.total_seconds || 0} running={true} className="text-white" />
             </div>
           )}
-          <button onClick={() => navigate('/dev/add')} className="btn-amber text-xs ml-4">
-            <Plus size={14} /> New Task
-          </button>
         </div>
       </div>
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {[
-          { icon: Clock,       label: 'Today',       value: `${dashData?.kpis?.total_hours_today || 0}h`,    sub: `${Math.round((dashData?.kpis?.total_seconds_today || 0) / 60)}m logged`, color: 'bg-teal-50 text-teal-700' },
+          { icon: Clock,       label: 'Today',       value: todayFormatted,                  sub: 'Logged today', color: 'bg-teal-50 text-teal-700' },
           { icon: Zap,         label: 'Active Task',  value: dashData?.active_task ? dashData.active_task.ticket_id : '—', sub: dashData?.active_task ? 'Timer running' : 'None running', color: 'bg-emerald-50 text-emerald-700' },
           { icon: Timer,       label: 'WIP Tasks',    value: dashData?.kpis?.wip_count || 0,                 sub: `${dashData?.kpis?.paused_count || 0} paused`, color: 'bg-amber-50 text-amber-700' },
           { icon: CheckCircle, label: 'Done Today',   value: dashData?.kpis?.completed_today || 0,            sub: `This week: ${dashData?.kpis?.total_hours_this_week || 0}h`, color: 'bg-forest-50 text-forest-700' },

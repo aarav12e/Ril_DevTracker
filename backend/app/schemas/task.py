@@ -18,6 +18,9 @@ class TaskCreate(BaseModel):
     assigned_by: Optional[int] = None
     hours_logged: Optional[float] = None
     total_seconds: Optional[int] = None
+    module: Optional[str] = None
+    category: Optional[str] = None
+    remarks: Optional[str] = None
 
     @field_validator("priority")
     @classmethod
@@ -51,6 +54,9 @@ class TaskUpdate(BaseModel):
     start_date: Optional[date] = None
     hours_logged: Optional[float] = None
     total_seconds: Optional[int] = None
+    module: Optional[str] = None
+    category: Optional[str] = None
+    remarks: Optional[str] = None
 
 
 class TaskResponse(BaseModel):
@@ -78,6 +84,9 @@ class TaskResponse(BaseModel):
     timer_status: str
     created_at: datetime
     updated_at: datetime
+    module: Optional[str] = None
+    category: Optional[str] = None
+    remarks: Optional[str] = None
 
     class Config:
         from_attributes = True

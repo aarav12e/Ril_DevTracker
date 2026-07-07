@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
 from typing import Optional
 import io
 import pandas as pd
@@ -21,7 +20,7 @@ async def upload_excel(
     sheet_name: Optional[str] = Form(None),
     week_label: Optional[str] = Form(None),
     skip_duplicates: bool = Form(True),
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     # Upload window check
@@ -50,20 +49,21 @@ async def upload_excel(
 
 @router.get("/history", response_model=list[UploadHistoryResponse])
 def upload_history(
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    query = db.query(UploadHistory)
+    filt = {}
     if current_user.role in ("developer", "intern"):
-        query = query.filter(UploadHistory.uploaded_by == current_user.id)
-    return query.order_by(UploadHistory.uploaded_at.desc()).limit(50).all()
+        filt["uploaded_by"] = current_user.id
+    cursor = db.upload_history.find(filt).sort("uploaded_at", -1).limit(50)
+    return [UploadHistory(**uh) for uh in cursor]
 
 
 @router.post("/validate", response_model=UploadValidationResult)
 async def validate_excel(
     file: UploadFile = File(...),
     sheet_name: Optional[str] = Form(None),
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     """Dry-run: validate without importing. Returns errors + preview."""

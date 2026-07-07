@@ -1,26 +1,26 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
 from typing import Optional
-from datetime import date
+from datetime import date, datetime
 import pandas as pd
 import io
-from app.core.database import get_db
+from app.core.database import get_db, get_next_sequence_value
 from app.core.security import get_current_user, require_admin
 from app.models import Role, RolesConfig, TaskUpload, User
 
 router = APIRouter(prefix="/api/config", tags=["Config & Export"])
 
 
-# ── Roles ──────────────────────────────────────────────────────
 @router.get("/roles")
-def list_roles(db: Session = Depends(get_db), _=Depends(get_current_user)):
-    return db.query(Role).order_by(Role.access_level).all()
+def list_roles(db = Depends(get_db), _=Depends(get_current_user)):
+    cursor = db.roles.find().sort("access_level", 1)
+    return [Role(**r) for r in cursor]
 
 
 @router.get("/roles-config")
-def list_roles_config(db: Session = Depends(get_db), _=Depends(require_admin)):
-    return db.query(RolesConfig).all()
+def list_roles_config(db = Depends(get_db), _=Depends(require_admin)):
+    cursor = db.roles_config.find()
+    return [RolesConfig(**rc) for rc in cursor]
 
 
 @router.patch("/roles-config/{role_name}")
@@ -29,69 +29,85 @@ def update_upload_window(
     upload_allowed: Optional[bool] = None,
     window_start: Optional[date] = None,
     window_end: Optional[date] = None,
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
     _=Depends(require_admin),
 ):
-    config = db.query(RolesConfig).filter(RolesConfig.role_name == role_name).first()
-    if not config:
-        config = RolesConfig(role_name=role_name)
-        db.add(config)
+    config_dict = db.roles_config.find_one({"role_name": role_name})
 
+    update_fields = {}
     if upload_allowed is not None:
-        config.upload_allowed = upload_allowed
+        update_fields["upload_allowed"] = upload_allowed
     if window_start:
-        config.upload_window_start = window_start
+        update_fields["upload_window_start"] = str(window_start)
     if window_end:
-        config.upload_window_end = window_end
+        update_fields["upload_window_end"] = str(window_end)
 
-    db.commit()
+    if not config_dict:
+        config_id = get_next_sequence_value("roles_config_id")
+        doc = {
+            "id": config_id,
+            "role_name": role_name,
+            "domain": None,
+            "upload_allowed": upload_allowed if upload_allowed is not None else True,
+            "upload_window_start": str(window_start) if window_start else None,
+            "upload_window_end": str(window_end) if window_end else None,
+            "created_at": datetime.utcnow()
+        }
+        db.roles_config.insert_one(doc)
+    else:
+        if update_fields:
+            db.roles_config.update_one({"role_name": role_name}, {"$set": update_fields})
+
     return {"message": f"Config updated for role '{role_name}'"}
 
 
-# ── Export ──────────────────────────────────────────────────────
 @router.get("/export/excel")
 def export_to_excel(
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
     user_id: Optional[int] = None,
     status: Optional[str] = None,
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    query = db.query(TaskUpload)
-
+    filt = {}
     if current_user.role in ("developer", "intern"):
-        query = query.filter(TaskUpload.user_id == current_user.id)
+        filt["user_id"] = current_user.id
     elif user_id:
-        query = query.filter(TaskUpload.user_id == user_id)
-    if from_date:
-        query = query.filter(TaskUpload.start_date >= from_date)
-    if to_date:
-        query = query.filter(TaskUpload.due_date <= to_date)
+        filt["user_id"] = user_id
+        
+    if from_date or to_date:
+        date_query = {}
+        if from_date:
+            date_query["$gte"] = str(from_date)
+        if to_date:
+            date_query["$lte"] = str(to_date)
+        filt["start_date"] = date_query
+        
     if status:
-        query = query.filter(TaskUpload.status == status)
+        filt["status"] = status
 
-    tasks = query.order_by(TaskUpload.created_at.desc()).all()
+    cursor = db.task_uploads.find(filt).sort("created_at", -1)
+    tasks = [TaskUpload(**t) for t in cursor]
 
     rows = []
     for t in tasks:
-        user = db.query(User).filter(User.id == t.user_id).first()
         rows.append({
-            "Ticket ID": t.ticket_id,
-            "Developer": user.username if user else "",
+            "Sr No.": t.ticket_id,
             "Track": t.track or "",
             "Dev Type": t.dev_type_task or "",
+            "Module": t.module or "",
             "Type of Development": t.type_of_development or "",
-            "CD Number": t.cd_number or "",
-            "Task Title": t.task_title,
+            "ProjectID / CCB ID / CD No.": t.cd_number or "",
+            "Development Subject": t.task_title,
+            "Category": t.category or "",
+            "Development Description": t.description or "",
             "Functional Team": t.functional_team or "",
-            "Status": t.status,
-            "Priority": t.priority,
+            "Developer Name": t.developer_name,
             "Start Date": str(t.start_date) if t.start_date else "",
-            "Due Date": str(t.due_date) if t.due_date else "",
-            "Hours Logged": float(t.hours_logged or 0),
-            "Upload Source": t.upload_source,
-            "Created At": str(t.created_at),
+            "End Date": str(t.due_date) if t.due_date else "",
+            "Status": t.status,
+            "Remarks": t.remarks or "",
         })
 
     df = pd.DataFrame(rows)
@@ -112,20 +128,26 @@ def export_to_csv(
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
     user_id: Optional[int] = None,
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    query = db.query(TaskUpload)
+    filt = {}
     if current_user.role in ("developer", "intern"):
-        query = query.filter(TaskUpload.user_id == current_user.id)
+        filt["user_id"] = current_user.id
     elif user_id:
-        query = query.filter(TaskUpload.user_id == user_id)
-    if from_date:
-        query = query.filter(TaskUpload.start_date >= from_date)
-    if to_date:
-        query = query.filter(TaskUpload.due_date <= to_date)
+        filt["user_id"] = user_id
+        
+    if from_date or to_date:
+        date_query = {}
+        if from_date:
+            date_query["$gte"] = str(from_date)
+        if to_date:
+            date_query["$lte"] = str(to_date)
+        filt["start_date"] = date_query
 
-    tasks = query.all()
+    cursor = db.task_uploads.find(filt)
+    tasks = [TaskUpload(**t) for t in cursor]
+    
     rows = [{"ticket_id": t.ticket_id, "task_title": t.task_title,
              "status": t.status, "hours_logged": float(t.hours_logged or 0),
              "track": t.track, "created_at": str(t.created_at)} for t in tasks]

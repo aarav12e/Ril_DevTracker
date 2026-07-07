@@ -25,6 +25,15 @@
     padding-left: calc(1rem - 3px);
   }
 
+  .sidebar-nav-item {
+    @apply flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:bg-white/5 hover:text-white transition-all duration-150 cursor-pointer;
+  }
+  .sidebar-nav-item.active {
+    @apply bg-white/10 text-white font-semibold;
+    border-left: 3px solid #C9A84C;
+    padding-left: calc(1rem - 3px);
+  }
+
   /* ── Cards ── */
   .card {
     @apply bg-white rounded-card shadow-card p-6;

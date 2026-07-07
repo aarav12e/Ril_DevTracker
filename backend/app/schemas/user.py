@@ -34,13 +34,7 @@ class UserCreate(BaseModel):
             raise ValueError(f"role must be one of {allowed}")
         return v
 
-    @field_validator("dev_type")
-    @classmethod
-    def validate_dev_type(cls, v):
-        allowed = {"python", "angular", "react", "node", "sap", "other"}
-        if v not in allowed:
-            raise ValueError(f"dev_type must be one of {allowed}")
-        return v
+
 
 
 class UserUpdate(BaseModel):

@@ -3,14 +3,12 @@ import math
 from datetime import datetime, date
 from typing import Optional, List
 import pandas as pd
-from sqlalchemy.orm import Session
-from sqlalchemy import func
 
+from app.core.database import get_next_sequence_value
 from app.models.user import User
 from app.models.task import TaskUpload
 from app.models.upload import UploadHistory
-from app.services.utils import generate_ticket_id, notify_admins
-
+from app.services.utils import notify_admins
 
 REQUIRED_COLUMNS = {"task_title", "status", "priority"}
 
@@ -47,7 +45,7 @@ COLUMN_MAP = {
     "developers": "developer",
 }
 
-VALID_STATUSES = {"pending", "in_progress", "completed", "on_hold", "fut"}
+VALID_STATUSES = {"in_progress", "completed", "fut", "hold_functional", "hold_developer"}
 VALID_PRIORITIES = {"low", "medium", "high"}
 
 
@@ -125,19 +123,21 @@ def _clean_row(row: dict) -> dict:
 
 def _normalize_status(val: Optional[str]) -> str:
     if not val:
-        return "pending"
+        return "in_progress"
     val_str = str(val).strip().lower()
     if val_str in ("wip", "in progress", "in-progress", "in_progress", "active"):
         return "in_progress"
-    if val_str in ("hold", "on hold", "on-hold", "on_hold"):
-        return "on_hold"
-    if val_str in ("completed", "done", "complete"):
+    if val_str in ("hold by functional", "hold_functional", "hold by functional team", "hold"):
+        return "hold_functional"
+    if val_str in ("hold by developer", "hold_developer"):
+        return "hold_developer"
+    if val_str in ("completed", "done", "complete", "prod"):
         return "completed"
     if val_str in ("pending", "todo", "to do", "to-do", "idle"):
-        return "pending"
+        return "in_progress"
     if val_str in ("fut", "future"):
         return "fut"
-    return "pending"
+    return "in_progress"
 
 
 def _normalize_priority(val: Optional[str]) -> str:
@@ -153,7 +153,7 @@ def _normalize_priority(val: Optional[str]) -> str:
     return "medium"
 
 
-def _validate_row(row: dict, row_num: int, current_user, db: Session) -> Optional[str]:
+def _validate_row(row: dict, row_num: int, current_user, db) -> Optional[str]:
     # Check if row is completely empty (after cleaning)
     non_empty = [v for k, v in row.items() if v is not None and str(v).strip() != ""]
     if not non_empty:
@@ -170,18 +170,18 @@ def _validate_row(row: dict, row_num: int, current_user, db: Session) -> Optiona
     return None
 
 
-def _is_duplicate(row: dict, user_id: int, db: Session) -> bool:
-    return bool(
-        db.query(TaskUpload).filter(
-            TaskUpload.user_id == user_id,
-            TaskUpload.task_title == row.get("task_title"),
-            TaskUpload.start_date == row.get("start_date"),
-        ).first()
-    )
+def _is_duplicate(row: dict, user_id: int, db) -> bool:
+    start_date_str = str(row.get("start_date")) if row.get("start_date") else None
+    dup = db.task_uploads.find_one({
+        "user_id": user_id,
+        "task_title": row.get("task_title"),
+        "start_date": start_date_str,
+    })
+    return dup is not None
 
 
 def validate_excel_workbook(
-    db: Session,
+    db,
     file_contents: bytes,
     sheet_name: Optional[str],
     current_user
@@ -213,13 +213,15 @@ def validate_excel_workbook(
         dev_val = row.get("developer")
         if dev_val:
             dev_str = str(dev_val).strip().lower()
-            matched_user = db.query(User).filter(
-                (func.lower(User.full_name) == dev_str) |
-                (func.lower(User.username) == dev_str) |
-                (func.lower(User.email) == dev_str)
-            ).first()
+            matched_user = db.users.find_one({
+                "$or": [
+                    {"full_name": {"$regex": f"^{dev_str}$", "$options": "i"}},
+                    {"username": {"$regex": f"^{dev_str}$", "$options": "i"}},
+                    {"email": {"$regex": f"^{dev_str}$", "$options": "i"}}
+                ]
+            })
             if matched_user:
-                row_user_id = matched_user.id
+                row_user_id = matched_user["id"]
             else:
                 if current_user.role in ("admin", "manager"):
                     errors.append({"row": i, "error": f"Developer '{dev_val}' not found in system"})
@@ -234,7 +236,13 @@ def validate_excel_workbook(
             valid += 1
 
         if i <= 11:
-            preview.append(row)
+            # format dates as strings for preview
+            row_preview = {**row}
+            if row_preview.get("start_date"):
+                row_preview["start_date"] = str(row_preview["start_date"])
+            if row_preview.get("due_date"):
+                row_preview["due_date"] = str(row_preview["due_date"])
+            preview.append(row_preview)
 
     return {
         "total_rows": len(df),
@@ -247,7 +255,7 @@ def validate_excel_workbook(
 
 
 def import_excel_workbook(
-    db: Session,
+    db,
     file_name: str,
     file_contents: bytes,
     sheet_name: Optional[str],
@@ -282,15 +290,15 @@ def import_excel_workbook(
         dev_val = row.get("developer")
         if dev_val:
             dev_str = str(dev_val).strip().lower()
-            matched_user = db.query(User).filter(
-                (func.lower(User.full_name) == dev_str) |
-                (func.lower(User.username) == dev_str) |
-                (func.lower(User.email) == dev_str)
-            ).first()
+            matched_user = db.users.find_one({
+                "$or": [
+                    {"full_name": {"$regex": f"^{dev_str}$", "$options": "i"}},
+                    {"username": {"$regex": f"^{dev_str}$", "$options": "i"}},
+                    {"email": {"$regex": f"^{dev_str}$", "$options": "i"}}
+                ]
+            })
             if matched_user:
-                row_user_id = matched_user.id
-            else:
-                row_user_id = current_user.id
+                row_user_id = matched_user["id"]
 
         if current_user.role in ("developer", "intern"):
             row_user_id = current_user.id
@@ -314,7 +322,7 @@ def import_excel_workbook(
                 hours = 0.0
 
         status_val = row.get("status")
-        status_str = str(status_val).lower().strip() if status_val is not None else "pending"
+        status_str = str(status_val).lower().strip() if status_val is not None else "in_progress"
 
         priority_val = row.get("priority")
         priority_str = str(priority_val).lower().strip() if priority_val is not None else "medium"
@@ -337,7 +345,9 @@ def import_excel_workbook(
         })
 
     # Create upload history record
+    history_id = get_next_sequence_value("upload_history_id")
     history = UploadHistory(
+        id=history_id,
         uploaded_by=current_user.id,
         week_label=detected_label,
         sheet_name=target_sheet,
@@ -347,36 +357,39 @@ def import_excel_workbook(
         valid_rows=len(valid_tasks),
         error_rows=len(errors),
     )
-    db.add(history)
-    db.flush()
+    db.upload_history.insert_one(history.to_dict())
 
     # Bulk insert valid tasks
     for task_data in valid_tasks:
         target_user_id = task_data.pop("user_id", current_user.id)
+        task_id = get_next_sequence_value("task_id")
+        
+        start_date_str = str(task_data.get("start_date")) if task_data.get("start_date") else None
+        due_date_str = str(task_data.get("due_date")) if task_data.get("due_date") else None
+
         task = TaskUpload(
+            id=task_id,
+            ticket_id=f"SR-{task_id:04d}",
             user_id=target_user_id,
-            ticket_id=generate_ticket_id(db),
             upload_source="excel",
             file_name=file_name,
             upload_history_id=history.id,
             timer_status="idle",
-            **task_data,
+            status=task_data["status"],
+            priority=task_data["priority"],
+            task_title=task_data["task_title"],
+            description=task_data["description"],
+            start_date=start_date_str,
+            due_date=due_date_str,
+            track=task_data["track"],
+            dev_type_task=task_data["dev_type_task"],
+            type_of_development=task_data["type_of_development"],
+            cd_number=task_data["cd_number"],
+            functional_team=task_data["functional_team"],
+            hours_logged=task_data["hours_logged"],
+            total_seconds=task_data["total_seconds"],
         )
-        db.add(task)
-
-    db.commit()
-
-    # Backfill total_seconds on already-imported tasks
-    stale = db.query(TaskUpload).filter(
-        TaskUpload.upload_source == "excel",
-        TaskUpload.total_seconds == 0,
-        TaskUpload.hours_logged != None,
-        TaskUpload.hours_logged > 0,
-    ).all()
-    for t in stale:
-        t.total_seconds = int(round(float(t.hours_logged) * 3600))
-    if stale:
-        db.commit()
+        db.task_uploads.insert_one(task.to_dict())
 
     # Notify all admins
     notify_admins(
@@ -390,5 +403,4 @@ def import_excel_workbook(
         notif_type="upload",
     )
 
-    db.refresh(history)
     return history

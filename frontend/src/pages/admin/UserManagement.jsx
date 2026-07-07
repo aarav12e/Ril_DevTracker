@@ -3,7 +3,8 @@ import Layout from '../../components/layout/Layout'
 import api from '../../api/axios'
 import LoadingSpinner from '../../components/shared/LoadingSpinner'
 import { ROLES, DEV_STACK_TYPES } from '../../constants'
-import { Plus, Search, Edit2, UserX, UserCheck, X, Users } from 'lucide-react'
+import { Plus, Search, Edit2, UserX, UserCheck, X, Users, ChevronDown } from 'lucide-react'
+import { useToast } from '../../context/ToastContext'
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -18,23 +19,70 @@ function Drawer({ open, onClose, editUser, onSaved }) {
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  
+  // Custom multi-select & custom technology state
+  const [availableDevTypes, setAvailableDevTypes] = useState(['react', 'angular', 'python', 'node', 'sap', 'golang'])
+  const [newTypeInput, setNewTypeInput] = useState('')
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
   useEffect(() => {
-    if (editUser) setForm({ ...editUser, password: '' })
-    else setForm({ username: '', email: '', password: '', full_name: '', role: 'developer', dev_type: 'react', domain: '' })
+    const baseList = ['react', 'angular', 'python', 'node', 'sap', 'golang']
+    if (editUser) {
+      const vals = editUser.dev_type ? editUser.dev_type.split(',').map(s => s.trim().toLowerCase()).filter(Boolean) : []
+      const merged = Array.from(new Set([...baseList, ...vals]))
+      setAvailableDevTypes(merged)
+      setForm({ ...editUser, password: '' })
+    } else {
+      setAvailableDevTypes(baseList)
+      setForm({ username: '', email: '', password: '', full_name: '', role: 'developer', dev_type: 'react', domain: '' })
+    }
     setError('')
+    setDropdownOpen(false)
   }, [editUser, open])
+
+  const selectedTypes = form.dev_type ? form.dev_type.split(',').map(s => s.trim().toLowerCase()).filter(Boolean) : []
+
+  const toggleDevType = (tech) => {
+    let updated
+    if (selectedTypes.includes(tech)) {
+      updated = selectedTypes.filter(t => t !== tech)
+    } else {
+      updated = [...selectedTypes, tech]
+    }
+    set('dev_type', updated.join(', '))
+  }
+
+  const handleAddCustomTech = (e) => {
+    if (e) e.preventDefault()
+    const cleaned = newTypeInput.trim().toLowerCase()
+    if (!cleaned) return
+    
+    if (!availableDevTypes.includes(cleaned)) {
+      setAvailableDevTypes(prev => [...prev, cleaned])
+    }
+    
+    if (!selectedTypes.includes(cleaned)) {
+      const updated = [...selectedTypes, cleaned]
+      set('dev_type', updated.join(', '))
+    }
+    setNewTypeInput('')
+  }
 
   const submit = async (e) => {
     e.preventDefault(); setError(''); setLoading(true)
     try {
+      const payload = { ...form }
+      if (!editUser && !payload.password) {
+        payload.password = 'Reliance@123'
+      }
       if (editUser) {
         await api.patch(`/api/users/${editUser.id}`, {
-          full_name: form.full_name, role: form.role, dev_type: form.dev_type, is_active: form.is_active,
+          full_name: payload.full_name, role: payload.role, dev_type: payload.dev_type, is_active: payload.is_active,
         })
       } else {
-        await api.post('/api/users', form)
+        await api.post('/api/users', payload)
       }
       onSaved(); onClose()
     } catch (err) {
@@ -80,8 +128,9 @@ function Drawer({ open, onClose, editUser, onSaved }) {
 
           {!editUser && (
             <div>
-              <label className="label">Password <span className="text-red-500">*</span></label>
-              <input type="password" className="input" placeholder="Minimum 8 characters" value={form.password} onChange={e => set('password', e.target.value)} required={!editUser} />
+              <label className="label">Password (Optional)</label>
+              <input type="password" className="input" placeholder="Default: Reliance@123" value={form.password} onChange={e => set('password', e.target.value)} />
+              <p className="text-[10px] text-muted mt-1">🔒 If left empty, defaults automatically to: <strong>Reliance@123</strong></p>
             </div>
           )}
 
@@ -97,11 +146,73 @@ function Drawer({ open, onClose, editUser, onSaved }) {
             </div>
           </div>
 
-          <div>
+          <div className="relative">
             <label className="label">Dev Type <span className="text-red-500">*</span></label>
-            <select className="select" value={form.dev_type} onChange={e => set('dev_type', e.target.value)} required>
-              {DEV_STACK_TYPES.map(d => <option key={d} value={d} className="capitalize">{d}</option>)}
-            </select>
+            
+            {/* Custom dropdown trigger */}
+            <div
+              onClick={() => setDropdownOpen(!dropdownOpen)}
+              className="input flex items-center justify-between cursor-pointer py-2 text-xs min-h-9 h-auto border border-border rounded-lg bg-white select-none"
+            >
+              <div className="flex flex-wrap gap-1">
+                {selectedTypes.length === 0 ? (
+                  <span className="text-muted">Select Dev Types</span>
+                ) : (
+                  selectedTypes.map(tech => (
+                    <span key={tech} className="bg-forest-50 text-[#0D4F3C] text-[10px] font-bold px-2 py-0.5 rounded border border-forest-200 capitalize">
+                      {tech}
+                    </span>
+                  ))
+                )}
+              </div>
+              <ChevronDown size={14} className="text-muted shrink-0 ml-2" />
+            </div>
+
+            {/* Custom dropdown select popup */}
+            {dropdownOpen && (
+              <div className="absolute left-0 right-0 mt-1 bg-white border border-border rounded-lg shadow-xl z-50 p-3 max-h-60 overflow-y-auto space-y-2.5 animate-in fade-in duration-100">
+                <div className="space-y-1.5">
+                  {availableDevTypes.map(tech => {
+                    const isChecked = selectedTypes.includes(tech)
+                    return (
+                      <label key={tech} className="flex items-center gap-2 cursor-pointer text-xs text-charcoal select-none hover:bg-slate-50 p-1.5 rounded transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleDevType(tech)}
+                          className="checkbox rounded border-slate-300 text-forest-600 focus:ring-forest-500"
+                        />
+                        <span className="capitalize">{tech}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+                
+                <div className="border-t border-border pt-2.5 flex gap-2">
+                  <input
+                    type="text"
+                    className="input text-[11px] h-8 py-1"
+                    placeholder="Add new (e.g. Go, Java)"
+                    value={newTypeInput}
+                    onChange={e => setNewTypeInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        handleAddCustomTech(e)
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleAddCustomTech()}
+                    className="btn-outline text-[11px] h-8 px-2.5 shrink-0"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            )}
+            <p className="text-[10px] text-muted mt-1">Select one or more technologies from the list or add custom ones.</p>
           </div>
 
           {editUser && (
@@ -129,6 +240,7 @@ function Drawer({ open, onClose, editUser, onSaved }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function UserManagement() {
+  const { toast } = useToast()
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -150,8 +262,13 @@ export default function UserManagement() {
 
   const deactivate = async (id) => {
     if (!confirm('Deactivate this user?')) return
-    try { await api.delete(`/api/users/${id}`); fetchUsers() }
-    catch (err) { alert(err.response?.data?.detail || 'Failed') }
+    try {
+      await api.delete(`/api/users/${id}`)
+      toast.success('User deactivated successfully')
+      fetchUsers()
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to deactivate user')
+    }
   }
 
   const filtered = users.filter(u =>
@@ -228,7 +345,13 @@ export default function UserManagement() {
                     <td className="table-cell text-sm text-muted">{u.email || '—'}</td>
                     <td className="table-cell"><span className="badge-gray text-[10px]">{u.domain || '—'}</span></td>
                     <td className="table-cell"><RoleBadge role={u.role} /></td>
-                    <td className="table-cell"><span className="badge-blue capitalize">{u.dev_type}</span></td>
+                    <td className="table-cell">
+                      <div className="flex flex-wrap gap-1">
+                        {(u.dev_type || '').split(',').map(s => s.trim()).filter(Boolean).map(tech => (
+                          <span key={tech} className="badge-blue capitalize text-[10px] px-2 py-0.5 rounded-full">{tech}</span>
+                        ))}
+                      </div>
+                    </td>
                     <td className="table-cell">
                       <span className={`flex items-center gap-1.5 text-xs font-semibold ${u.is_active ? 'text-emerald-600' : 'text-slate-400'}`}>
                         <span className={`w-2 h-2 rounded-full ${u.is_active ? 'bg-emerald-500' : 'bg-slate-300'}`} />

@@ -28,71 +28,30 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex">
-      {/* ── Left panel ── */}
-      <div
-        className="hidden lg:flex w-[58%] flex-col justify-between p-12 relative overflow-hidden"
-        style={{ background: 'linear-gradient(135deg, #0D4F3C 0%, #1a6b52 50%, #0a3d2e 100%)' }}
-      >
-        {/* Hexagon pattern overlay */}
-        <div className="absolute inset-0 opacity-[0.06]"
-          style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-          }}
+      {/* ── Left panel — Hospital Image ── */}
+      <div className="hidden lg:block w-[55%] relative overflow-hidden">
+        <img
+          src="/loginpage.png"
+          alt="Sir H.N. Reliance Foundation Hospital"
+          className="absolute inset-0 w-full h-full object-cover object-left"
         />
-
-        {/* Top badge */}
-        <div>
-          <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur border border-white/20 rounded-full px-4 py-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-gold-400 animate-pulse" />
-            <span className="text-white/90 text-xs font-semibold tracking-wide uppercase">Internal System · Authorized Access Only</span>
+        {/* Gradient overlay for depth */}
+        <div className="absolute inset-0 bg-gradient-to-r from-black/20 via-transparent to-white/10" />
+        {/* Bottom tag */}
+        <div className="absolute bottom-8 left-8 right-8">
+          <div className="inline-flex items-center gap-2 bg-white/90 backdrop-blur-sm border border-white/40 rounded-xl px-5 py-3 shadow-lg">
+            <div className="w-8 h-8 rounded-lg bg-forest-600 flex items-center justify-center">
+              <Activity size={16} className="text-white" />
+            </div>
+            <div>
+              <p className="font-bold text-charcoal text-sm font-display">DevTracker</p>
+              <p className="text-[10px] text-muted">Internal Development Management System</p>
+            </div>
           </div>
-        </div>
-
-        {/* Center content */}
-        <div className="space-y-8">
-          {/* Logo circle */}
-          <div className="w-20 h-20 rounded-2xl bg-gold-400/20 border border-gold-400/40 flex items-center justify-center">
-            <Activity size={36} className="text-gold-400" />
-          </div>
-
-          <div>
-            <p className="text-white/60 text-sm font-semibold tracking-widest uppercase mb-3">H.N. Reliance Hospital, Mumbai</p>
-            <h1 className="font-display font-bold text-5xl text-white leading-tight mb-2">
-              Track.<br />
-              <span className="text-gold-400">Build.</span><br />
-              Deliver.
-            </h1>
-            <p className="text-white/60 text-base mt-4">Internal Development Management System</p>
-          </div>
-
-          {/* Stats */}
-          <div className="flex gap-10">
-            {[['12', 'Active Teams'], ['340+', 'Sprints Logged'], ['99.8%', 'Uptime']].map(([val, label]) => (
-              <div key={label}>
-                <p className="text-white font-bold text-2xl font-display">{val}</p>
-                <p className="text-white/50 text-xs mt-0.5">{label}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Feature pills */}
-          <div className="flex flex-wrap gap-2">
-            {['Sprint Tracking', 'Build Pipelines', 'Release Management', 'Team Analytics'].map(f => (
-              <span key={f} className="bg-white/10 border border-white/20 text-white/80 text-xs px-3 py-1.5 rounded-full">
-                {f}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        {/* Bottom */}
-        <div className="flex items-center justify-between">
-          <p className="text-white/40 text-xs">A Reliance Industries Initiative</p>
-          <p className="text-white/30 text-xs">© 2026 RIL</p>
         </div>
       </div>
 
-      {/* ── Right panel ── */}
+      {/* ── Right panel — Login Form ── */}
       <div className="flex-1 flex items-center justify-center p-8 bg-white">
         <div className="w-full max-w-sm">
           {/* Mobile logo */}

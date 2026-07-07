@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from app.core.database import get_db
+from app.core.database import get_db, get_next_sequence_value
 from app.core.security import (
     hash_password, verify_password, create_access_token,
     get_current_user, require_admin
@@ -13,9 +12,15 @@ router = APIRouter(prefix="/api/auth", tags=["Auth"])
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == payload.username).first()
-    if not user or not verify_password(payload.password, user.password_hash):
+def login(payload: LoginRequest, db = Depends(get_db)):
+    user_dict = db.users.find_one({"username": payload.username})
+    if not user_dict:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password",
+        )
+    user = User(**user_dict)
+    if not verify_password(payload.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
@@ -34,7 +39,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/register", response_model=UserResponse)
-def register(payload: UserCreate, db: Session = Depends(get_db)):
+def register(payload: UserCreate, db = Depends(get_db)):
     # Domain validation
     if payload.email:
         domain = payload.email.split("@")[-1]
@@ -46,17 +51,19 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
             )
 
     # Duplicate check
-    if db.query(User).filter(User.username == payload.username).first():
+    if db.users.find_one({"username": payload.username}):
         raise HTTPException(status_code=400, detail="Username already taken")
-    if payload.email and db.query(User).filter(User.email == payload.email).first():
+    if payload.email and db.users.find_one({"email": payload.email}):
         raise HTTPException(status_code=400, detail="Email already registered")
 
     # Role exists check
-    role_obj = db.query(Role).filter(Role.name == payload.role).first()
+    role_obj = db.roles.find_one({"name": payload.role})
     if not role_obj:
         raise HTTPException(status_code=400, detail=f"Role '{payload.role}' not found")
 
+    user_id = get_next_sequence_value("user_id")
     user = User(
+        id=user_id,
         username=payload.username,
         email=payload.email,
         password_hash=hash_password(payload.password),
@@ -65,9 +72,7 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
         dev_type=payload.dev_type,
         domain=payload.email.split("@")[-1] if payload.email else payload.domain,
     )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
+    db.users.insert_one(user.to_dict())
     return user
 
 

@@ -1,24 +1,35 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from pymongo import MongoClient
 from app.core.config import settings
 
-engine = create_engine(
-    settings.DATABASE_URL,
-    pool_pre_ping=True,
-    pool_recycle=3600,
-    echo=False,
-)
+client = MongoClient(settings.MONGO_URL)
+try:
+    db = client.get_default_database()
+    if db is None:
+        db = client["devtracker"]
+except Exception:
+    db = client["devtracker"]
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-
-class Base(DeclarativeBase):
+class Base:
     pass
 
 
 def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+    yield db
+
+
+def get_next_sequence_value(sequence_name: str) -> int:
+    res = db.counters.find_one_and_update(
+        {"_id": sequence_name},
+        {"$inc": {"sequence_value": 1}},
+        upsert=True,
+        return_document=True
+    )
+    return res["sequence_value"]
+
+
+def init_db():
+    db.users.create_index("username", unique=True)
+    db.users.create_index("email", unique=True, sparse=True)
+    db.task_uploads.create_index("ticket_id", unique=True, sparse=True)
+

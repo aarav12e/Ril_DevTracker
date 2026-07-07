@@ -4,7 +4,6 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 
@@ -45,7 +44,7 @@ def decode_token(token: str) -> dict:
 # ── Current user dependency ────────────────────────────────────
 def get_current_user(
     token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
 ):
     from app.models import User
 
@@ -54,8 +53,11 @@ def get_current_user(
     if user_id is None:
         raise HTTPException(status_code=401, detail="Invalid token payload")
 
-    user = db.query(User).filter(User.id == int(user_id)).first()
-    if not user or not user.is_active:
+    user_dict = db.users.find_one({"id": int(user_id)})
+    if not user_dict:
+        raise HTTPException(status_code=401, detail="User not found or inactive")
+    user = User(**user_dict)
+    if not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or inactive")
     return user
 

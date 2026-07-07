@@ -1,6 +1,4 @@
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
-from sqlalchemy import func, and_
 from datetime import datetime, date, timedelta
 from typing import Optional, List
 from app.core.database import get_db
@@ -11,80 +9,133 @@ from app.services.utils import seconds_to_hours
 router = APIRouter(prefix="/api/analytics", tags=["Analytics"])
 
 
+def get_leave_days_in_period(user_id: int, start: date, end: date, db) -> int:
+    leaves_cursor = db.leaves.find({
+        "user_id": user_id,
+        "from_date": {"$lte": str(end)},
+        "to_date": {"$gte": str(start)}
+    })
+    total_days = 0
+    for leave in leaves_cursor:
+        from_d = date.fromisoformat(leave["from_date"]) if isinstance(leave["from_date"], str) else leave["from_date"]
+        to_d = date.fromisoformat(leave["to_date"]) if isinstance(leave["to_date"], str) else leave["to_date"]
+        l_start = max(start, from_d)
+        l_end = min(end, to_d)
+        curr = l_start
+        while curr <= l_end:
+            if curr.weekday() < 5:
+                total_days += 1
+            curr += timedelta(days=1)
+    return total_days
 @router.get("/dashboard/me")
 def my_dashboard(
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     today = date.today()
     week_start = today - timedelta(days=today.weekday())
 
+    today_start = datetime.combine(today, datetime.min.time())
+    today_end = datetime.combine(today, datetime.max.time())
+
     # Today's tasks
-    today_tasks = db.query(TaskUpload).filter(
-        TaskUpload.user_id == current_user.id,
-        func.date(TaskUpload.created_at) == today,
-    ).all()
+    today_tasks_cursor = db.task_uploads.find({
+        "user_id": current_user.id,
+        "created_at": {"$gte": today_start, "$lte": today_end}
+    })
+    today_tasks = [TaskUpload(**t) for t in today_tasks_cursor]
 
     # This week total seconds
-    week_sessions = db.query(TaskSession).join(TaskUpload).filter(
-        TaskUpload.user_id == current_user.id,
-        TaskSession.started_at >= datetime.combine(week_start, datetime.min.time()),
-    ).all()
-    week_seconds = sum(s.duration_seconds or 0 for s in week_sessions)
+    user_task_ids = [t["id"] for t in db.task_uploads.find({"user_id": current_user.id}, {"id": 1})]
+    week_start_dt = datetime.combine(week_start, datetime.min.time())
+    week_sessions_cursor = db.task_sessions.find({
+        "task_id": {"$in": user_task_ids},
+        "started_at": {"$gte": week_start_dt}
+    })
+    week_seconds = sum(s.get("duration_seconds") or 0 for s in week_sessions_cursor)
 
     # Active task
-    active_task = db.query(TaskUpload).filter(
-        TaskUpload.user_id == current_user.id,
-        TaskUpload.timer_status == "active",
-    ).first()
+    active_task_dict = db.task_uploads.find_one({
+        "user_id": current_user.id,
+        "timer_status": "active",
+    })
+    active_task = TaskUpload(**active_task_dict) if active_task_dict else None
 
     # Active task current live seconds
     active_seconds = 0
     if active_task:
-        open_session = db.query(TaskSession).filter(
-            TaskSession.task_id == active_task.id,
-            TaskSession.ended_at == None,
-            TaskSession.paused_at == None,
-        ).first()
+        open_session = db.task_sessions.find_one({
+            "task_id": active_task.id,
+            "ended_at": None,
+            "paused_at": None,
+        })
         if open_session:
-            active_seconds = int((datetime.utcnow() - open_session.started_at).total_seconds())
+            started_at = open_session["started_at"]
+            if isinstance(started_at, str):
+                started_at = datetime.fromisoformat(started_at)
+            active_seconds = int((datetime.utcnow() - started_at).total_seconds())
 
     # WIP and paused tasks
-    wip_tasks = db.query(TaskUpload).filter(
-        TaskUpload.user_id == current_user.id,
-        TaskUpload.timer_status.in_(["active", "paused"]),
-    ).all()
+    wip_cursor = db.task_uploads.find({
+        "user_id": current_user.id,
+        "timer_status": {"$in": ["active", "paused"]},
+    })
+    wip_tasks = [TaskUpload(**t) for t in wip_cursor]
+
+    # Today's tasks (created today)
+    today_tasks_cursor = db.task_uploads.find({
+        "user_id": current_user.id,
+        "created_at": {"$gte": today_start, "$lte": today_end}
+    })
+    today_tasks = [TaskUpload(**t) for t in today_tasks_cursor]
 
     # Today's time breakdown per task
+    today_sessions_cursor = db.task_sessions.find({
+        "task_id": {"$in": user_task_ids},
+        "started_at": {"$gte": today_start, "$lte": today_end}
+    })
+    today_sessions = [TaskSession(**s) for s in today_sessions_cursor]
+    
+    sessions_by_task = {}
+    for s in today_sessions:
+        sessions_by_task[s.task_id] = sessions_by_task.get(s.task_id, 0) + (s.duration_seconds or 0)
+
+    all_today_task_ids = set(sessions_by_task.keys())
+    if active_task:
+        all_today_task_ids.add(active_task.id)
+    for t in today_tasks:
+        if t.total_seconds > 0:
+            all_today_task_ids.add(t.id)
+
     today_breakdown = []
-    all_tasks = db.query(TaskUpload).filter(
-        TaskUpload.user_id == current_user.id,
-    ).all()
+    for tid in all_today_task_ids:
+        task_dict = db.task_uploads.find_one({"id": tid})
+        if task_dict:
+            task = TaskUpload(**task_dict)
+            today_secs = sessions_by_task.get(tid, 0)
+            
+            # If no sessions exist today, but the task was created today, sum its total_seconds
+            if today_secs == 0 and task.id in [tk.id for tk in today_tasks]:
+                today_secs = task.total_seconds
 
-    for task in all_tasks:
-        today_sessions = db.query(TaskSession).filter(
-            TaskSession.task_id == task.id,
-            func.date(TaskSession.started_at) == today,
-        ).all()
-        today_secs = sum(s.duration_seconds or 0 for s in today_sessions)
-        if task.timer_status == "active" and task.id == (active_task.id if active_task else None):
-            today_secs += active_seconds
-        if today_secs > 0:
-            today_breakdown.append({
-                "task_id": task.id,
-                "ticket_id": task.ticket_id,
-                "task_title": task.task_title,
-                "track": task.track,
-                "seconds_today": today_secs,
-                "hours_today": seconds_to_hours(today_secs),
-                "status": task.timer_status,
-            })
+            if task.timer_status == "active" and active_task and task.id == active_task.id:
+                today_secs += active_seconds
+            if today_secs > 0:
+                today_breakdown.append({
+                    "task_id": task.id,
+                    "ticket_id": task.ticket_id,
+                    "task_title": task.task_title,
+                    "track": task.track,
+                    "seconds_today": today_secs,
+                    "hours_today": seconds_to_hours(today_secs),
+                    "status": task.timer_status,
+                })
 
-    completed_today = db.query(TaskUpload).filter(
-        TaskUpload.user_id == current_user.id,
-        TaskUpload.status == "completed",
-        func.date(TaskUpload.completed_at) == today,
-    ).count()
+    completed_today = db.task_uploads.count_documents({
+        "user_id": current_user.id,
+        "status": "completed",
+        "completed_at": {"$gte": today_start, "$lte": today_end}
+    })
 
     return {
         "user": current_user.username,
@@ -103,7 +154,7 @@ def my_dashboard(
             "ticket_id": active_task.ticket_id,
             "task_title": active_task.task_title,
             "track": active_task.track,
-            "total_seconds": active_task.total_seconds + active_seconds,
+            "total_seconds": active_task.total_seconds,
             "current_session_seconds": active_seconds,
         } if active_task else None,
         "today_breakdown": sorted(today_breakdown, key=lambda x: x["seconds_today"], reverse=True),
@@ -125,54 +176,73 @@ def my_dashboard(
 
 @router.get("/dashboard/admin")
 def admin_dashboard(
+    view_type: str = "weekly",
     week_offset: int = 0,
-    db: Session = Depends(get_db),
+    offset: Optional[int] = None,
+    db = Depends(get_db),
     _=Depends(require_admin_or_manager),
 ):
+    actual_offset = offset if offset is not None else week_offset
     today = date.today()
-    week_start = today - timedelta(days=today.weekday()) - timedelta(weeks=week_offset)
-    week_end = week_start + timedelta(days=6)
 
-    week_start_dt = datetime.combine(week_start, datetime.min.time())
-    week_end_dt = datetime.combine(week_end, datetime.max.time())
+    if view_type == "monthly":
+        year = today.year
+        month = today.month - actual_offset
+        while month <= 0:
+            month += 12
+            year -= 1
+        
+        start_date = date(year, month, 1)
+        if month == 12:
+            end_date = date(year + 1, 1, 1) - timedelta(days=1)
+        else:
+            end_date = date(year, month + 1, 1) - timedelta(days=1)
+        label = start_date.strftime("%B %Y")
+    else:
+        start_date = today - timedelta(days=today.weekday()) - timedelta(weeks=actual_offset)
+        end_date = start_date + timedelta(days=6)
+        label = f"{start_date} to {end_date}"
 
-    # Total tasks this week
-    week_tasks = db.query(TaskUpload).filter(
-        TaskUpload.created_at.between(week_start_dt, week_end_dt)
-    ).all()
+    start_dt = datetime.combine(start_date, datetime.min.time())
+    end_dt = datetime.combine(end_date, datetime.max.time())
+
+    # Total tasks in period
+    tasks_in_period_cursor = db.task_uploads.find({
+        "created_at": {"$gte": start_dt, "$lte": end_dt}
+    })
+    tasks_in_period = [TaskUpload(**t) for t in tasks_in_period_cursor]
 
     # Status breakdown
     status_counts = {}
-    for task in week_tasks:
+    for task in tasks_in_period:
         status_counts[task.status] = status_counts.get(task.status, 0) + 1
 
-    # Developer-wise hours this week
-    developers = db.query(User).filter(
-        User.role.in_(["developer", "intern"]),
-        User.is_active == True,
-    ).all()
+    # Developer-wise hours in period
+    developers_cursor = db.users.find({
+        "role": {"$in": ["developer", "intern"]},
+        "is_active": True,
+    })
+    developers = [User(**u) for u in developers_cursor]
 
     dev_breakdown = []
     for dev in developers:
-        sessions = db.query(TaskSession).join(TaskUpload).filter(
-            TaskUpload.user_id == dev.id,
-            TaskSession.started_at.between(week_start_dt, week_end_dt),
-        ).all()
+        dev_task_ids = [t.id for t in tasks_in_period if t.user_id == dev.id]
+        sessions_cursor = db.task_sessions.find({
+            "task_id": {"$in": dev_task_ids},
+            "started_at": {"$gte": start_dt, "$lte": end_dt},
+        })
+        sessions = [TaskSession(**s) for s in sessions_cursor]
         timer_secs = sum(s.duration_seconds or 0 for s in sessions)
+        task_ids_with_sessions = set(s.task_id for s in sessions)
 
-        # Also count hours_logged from tasks that have no timer sessions (e.g. Excel imports)
-        dev_tasks_this_week = db.query(TaskUpload).filter(
-            TaskUpload.user_id == dev.id,
-            TaskUpload.created_at.between(week_start_dt, week_end_dt),
-        ).all()
+        dev_tasks = [t for t in tasks_in_period if t.user_id == dev.id]
         manual_secs = sum(
-            int(round(float(t.hours_logged) * 3600))
-            for t in dev_tasks_this_week
-            if (t.hours_logged or 0) > 0 and t.total_seconds == 0
+            t.total_seconds
+            for t in dev_tasks
+            if t.id not in task_ids_with_sessions
         )
         total_secs = timer_secs + manual_secs
 
-        task_count = len(dev_tasks_this_week)
         dev_breakdown.append({
             "user_id": dev.id,
             "username": dev.username,
@@ -181,41 +251,45 @@ def admin_dashboard(
             "dev_type": dev.dev_type,
             "total_seconds": total_secs,
             "total_hours": seconds_to_hours(total_secs),
-            "task_count": task_count,
+            "task_count": len(dev_tasks),
+            "leave_days": get_leave_days_in_period(dev.id, start_date, end_date, db),
         })
 
     dev_breakdown.sort(key=lambda x: x["total_seconds"], reverse=True)
 
     # Track breakdown
     track_counts = {}
-    for task in week_tasks:
+    for task in tasks_in_period:
         if task.track:
             track_counts[task.track] = track_counts.get(task.track, 0) + 1
 
-    # Sum timer sessions + manual hours_logged (for excel imports with no sessions)
-    session_seconds = sum(
-        s.duration_seconds or 0
-        for s in db.query(TaskSession).filter(
-            TaskSession.started_at.between(week_start_dt, week_end_dt)
-        ).all()
-    )
-    manual_seconds = sum(
-        int(round(float(t.hours_logged) * 3600))
-        for t in week_tasks
-        if (t.hours_logged or 0) > 0 and t.total_seconds == 0
-    )
-    total_week_seconds = session_seconds + manual_seconds
+    # Sum timer sessions + manual hours_logged
+    all_task_ids = [t.id for t in tasks_in_period]
+    session_seconds_cursor = db.task_sessions.find({
+        "task_id": {"$in": all_task_ids},
+        "started_at": {"$gte": start_dt, "$lte": end_dt}
+    })
+    all_sessions = [TaskSession(**s) for s in session_seconds_cursor]
+    session_seconds = sum(s.duration_seconds or 0 for s in all_sessions)
+    task_ids_with_sessions_all = set(s.task_id for s in all_sessions)
 
-    total_users = db.query(User).filter(User.is_active == True).count()
+    manual_seconds = sum(
+        t.total_seconds
+        for t in tasks_in_period
+        if t.id not in task_ids_with_sessions_all
+    )
+    total_seconds = session_seconds + manual_seconds
+
+    total_users = db.users.count_documents({"is_active": True})
 
     return {
-        "week_label": f"{week_start} to {week_end}",
+        "week_label": label,
         "kpis": {
             "total_users": total_users,
-            "total_tasks_this_week": len(week_tasks),
+            "total_tasks_this_week": len(tasks_in_period),
             "completed_this_week": status_counts.get("completed", 0),
             "in_progress_this_week": status_counts.get("in_progress", 0),
-            "total_hours_this_week": seconds_to_hours(total_week_seconds),
+            "total_hours_this_week": seconds_to_hours(total_seconds),
         },
         "status_breakdown": status_counts,
         "track_breakdown": track_counts,
@@ -230,26 +304,30 @@ def export_report_data(
     user_id: Optional[int] = None,
     status: Optional[str] = None,
     track: Optional[str] = None,
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    query = db.query(TaskUpload)
-
+    filt = {}
     if current_user.role in ("developer", "intern"):
-        query = query.filter(TaskUpload.user_id == current_user.id)
+        filt["user_id"] = current_user.id
     elif user_id:
-        query = query.filter(TaskUpload.user_id == user_id)
+        filt["user_id"] = user_id
 
-    if from_date:
-        query = query.filter(TaskUpload.start_date >= from_date)
-    if to_date:
-        query = query.filter(TaskUpload.due_date <= to_date)
+    if from_date or to_date:
+        date_query = {}
+        if from_date:
+            date_query["$gte"] = str(from_date)
+        if to_date:
+            date_query["$lte"] = str(to_date)
+        filt["start_date"] = date_query
+
     if status:
-        query = query.filter(TaskUpload.status == status)
+        filt["status"] = status
     if track:
-        query = query.filter(TaskUpload.track == track)
+        filt["track"] = track
 
-    tasks = query.order_by(TaskUpload.created_at.desc()).all()
+    cursor = db.task_uploads.find(filt).sort("created_at", -1)
+    tasks = [TaskUpload(**t) for t in cursor]
 
     total_seconds = sum(t.total_seconds or 0 for t in tasks)
 
@@ -260,6 +338,7 @@ def export_report_data(
         "tasks": [
             {
                 "ticket_id": t.ticket_id,
+                "developer_name": t.developer_name,
                 "task_title": t.task_title,
                 "track": t.track,
                 "dev_type": t.dev_type_task,
@@ -274,7 +353,276 @@ def export_report_data(
                 "total_seconds": t.total_seconds,
                 "upload_source": t.upload_source,
                 "created_at": str(t.created_at),
+                "module": t.module,
+                "category": t.category,
+                "remarks": t.remarks,
             }
             for t in tasks
         ],
     }
+
+
+@router.get("/weekly-productivity")
+def weekly_productivity(
+    offset: int = 0,
+    db = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    today = date.today()
+    start_date = today - timedelta(days=today.weekday()) - timedelta(weeks=offset)
+    end_date = start_date + timedelta(days=6)
+    
+    day = start_date.day
+    ordinal = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th", 5: "5th"}.get((day - 1) // 7 + 1, "1st")
+    month_name = start_date.strftime("%B")
+    week_label = f"{ordinal} week of {month_name} {start_date.year}"
+
+    start_dt = datetime.combine(start_date, datetime.min.time())
+    end_dt = datetime.combine(end_date, datetime.max.time())
+
+    developers_cursor = db.users.find({
+        "role": {"$in": ["developer", "intern"]},
+        "is_active": True,
+    })
+    developers = [User(**u) for u in developers_cursor]
+
+    dev_tasks_cursor = db.task_uploads.find({
+        "created_at": {"$gte": start_dt, "$lte": end_dt}
+    })
+    dev_tasks_all = [TaskUpload(**t) for t in dev_tasks_cursor]
+
+    breakdown = []
+    for dev in developers:
+        dev_tasks = [t for t in dev_tasks_all if t.user_id == dev.id]
+        dev_task_ids = [t.id for t in dev_tasks]
+
+        sessions_cursor = db.task_sessions.find({
+            "task_id": {"$in": dev_task_ids},
+            "started_at": {"$gte": start_dt, "$lte": end_dt},
+        })
+        sessions = [TaskSession(**s) for s in sessions_cursor]
+        timer_secs = sum(s.duration_seconds or 0 for s in sessions)
+        task_ids_with_sessions = set(s.task_id for s in sessions)
+
+        manual_secs = sum(
+            t.total_seconds
+            for t in dev_tasks
+            if t.id not in task_ids_with_sessions
+        )
+        total_secs = timer_secs + manual_secs
+        total_mins = int(round(total_secs / 60))
+
+        hrs = total_mins // 60
+        mins = total_mins % 60
+        hours_str = f"{hrs} hours {mins} minutes"
+
+        prod_pct = int(round((total_mins / 2400) * 100))
+
+        task_list = []
+        for t in dev_tasks:
+            task_list.append({
+                "id": t.id,
+                "ticket_id": t.ticket_id,
+                "task_title": t.task_title,
+                "track": t.track,
+                "status": t.status,
+                "hours_logged": float(t.hours_logged or 0),
+                "created_at": str(t.created_at),
+            })
+
+        breakdown.append({
+            "developer_id": dev.id,
+            "username": dev.username,
+            "full_name": dev.full_name or dev.username,
+            "dev_type": dev.dev_type,
+            "total_minutes": total_mins,
+            "hours_str": hours_str,
+            "productivity_pct": prod_pct,
+            "tasks": task_list,
+            "leave_days": get_leave_days_in_period(dev.id, start_date, end_date, db),
+        })
+
+    breakdown.sort(key=lambda x: x["full_name"].lower())
+
+    return {
+        "week_label": week_label,
+        "date_range": f"{start_date} to {end_date}",
+        "data": breakdown,
+    }
+
+
+@router.get("/weekly-productivity/export")
+def export_weekly_productivity(
+    offset: int = 0,
+    db = Depends(get_db),
+    _=Depends(require_admin_or_manager),
+):
+    from fastapi.responses import StreamingResponse
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    today = date.today()
+    start_date = today - timedelta(days=today.weekday()) - timedelta(weeks=offset)
+    end_date = start_date + timedelta(days=6)
+    
+    day = start_date.day
+    ordinal = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th", 5: "5th"}.get((day - 1) // 7 + 1, "1st")
+    month_name = start_date.strftime("%B")
+    week_label = f"{ordinal} week of {month_name} {start_date.year}"
+
+    start_dt = datetime.combine(start_date, datetime.min.time())
+    end_dt = datetime.combine(end_date, datetime.max.time())
+
+    developers_cursor = db.users.find({
+        "role": {"$in": ["developer", "intern"]},
+        "is_active": True,
+    })
+    developers = [User(**u) for u in developers_cursor]
+
+    dev_tasks_cursor = db.task_uploads.find({
+        "created_at": {"$gte": start_dt, "$lte": end_dt}
+    })
+    dev_tasks_all = [TaskUpload(**t) for t in dev_tasks_cursor]
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Productivity Summary"
+    ws.views.sheetView[0].showGridLines = True
+
+    font_title = Font(name="Calibri", size=11, bold=True)
+    font_header = Font(name="Calibri", size=11, bold=True)
+    font_data = Font(name="Calibri", size=11)
+    font_total = Font(name="Calibri", size=11, bold=True)
+
+    fill_title = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+    fill_header = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+
+    thin_border_side = Side(border_style="thin", color="D3D3D3")
+    border_data = Border(left=thin_border_side, right=thin_border_side, top=thin_border_side, bottom=thin_border_side)
+    
+    border_total = Border(
+        top=Side(border_style="thin", color="000000"),
+        bottom=Side(border_style="double", color="000000")
+    )
+
+    ws.merge_cells("A1:E1")
+    ws["A1"] = week_label
+    ws["A1"].font = font_title
+    ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    ws["A1"].fill = fill_title
+
+    ws.merge_cells("A2:E2")
+    ws["A2"] = "Developers Weekly (40 hours) productivity"
+    ws["A2"].font = font_title
+    ws["A2"].alignment = Alignment(horizontal="center", vertical="center")
+    ws["A2"].fill = fill_title
+
+    ws.row_dimensions[1].height = 24
+    ws.row_dimensions[2].height = 20
+
+    headers = ["Row Labels", "Sum of Time (Min)", "Sum of Time (Hours)", "Productivity", "Leaves (Days)"]
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=3, column=col_num)
+        cell.value = header
+        cell.font = font_header
+        cell.fill = fill_header
+        cell.alignment = Alignment(horizontal="left" if col_num in (1, 3) else "right", vertical="center")
+        cell.border = border_data
+
+    ws.row_dimensions[3].height = 20
+
+    row_idx = 4
+    for dev in sorted(developers, key=lambda x: x.full_name or x.username):
+        dev_tasks = [t for t in dev_tasks_all if t.user_id == dev.id]
+        dev_task_ids = [t.id for t in dev_tasks]
+
+        sessions_cursor = db.task_sessions.find({
+            "task_id": {"$in": dev_task_ids},
+            "started_at": {"$gte": start_dt, "$lte": end_dt},
+        })
+        sessions = [TaskSession(**s) for s in sessions_cursor]
+        timer_secs = sum(s.duration_seconds or 0 for s in sessions)
+        task_ids_with_sessions = set(s.task_id for s in sessions)
+
+        manual_secs = sum(
+            t.total_seconds
+            for t in dev_tasks
+            if t.id not in task_ids_with_sessions
+        )
+        total_mins = int(round((timer_secs + manual_secs) / 60))
+
+        ws.cell(row=row_idx, column=1, value=dev.full_name or dev.username).font = font_data
+        ws.cell(row=row_idx, column=1).alignment = Alignment(horizontal="left")
+        ws.cell(row=row_idx, column=1).border = border_data
+
+        ws.cell(row=row_idx, column=2, value=total_mins).font = font_data
+        ws.cell(row=row_idx, column=2).number_format = "#,##0"
+        ws.cell(row=row_idx, column=2).alignment = Alignment(horizontal="right")
+        ws.cell(row=row_idx, column=2).border = border_data
+
+        hrs = total_mins // 60
+        mins = total_mins % 60
+        hours_str = f"{hrs} hours {mins} minutes"
+        ws.cell(row=row_idx, column=3, value=hours_str).font = font_data
+        ws.cell(row=row_idx, column=3).alignment = Alignment(horizontal="left")
+        ws.cell(row=row_idx, column=3).border = border_data
+
+        formula = f"=B{row_idx}/2400"
+        ws.cell(row=row_idx, column=4, value=formula).font = font_data
+        ws.cell(row=row_idx, column=4).number_format = "0%"
+        ws.cell(row=row_idx, column=4).alignment = Alignment(horizontal="right")
+        ws.cell(row=row_idx, column=4).border = border_data
+
+        leave_days = get_leave_days_in_period(dev.id, start_date, end_date, db)
+        ws.cell(row=row_idx, column=5, value=leave_days).font = font_data
+        ws.cell(row=row_idx, column=5).number_format = "#,##0"
+        ws.cell(row=row_idx, column=5).alignment = Alignment(horizontal="right")
+        ws.cell(row=row_idx, column=5).border = border_data
+
+        row_idx += 1
+
+    total_row = row_idx
+    ws.cell(row=total_row, column=1, value="Grand Total").font = font_total
+    ws.cell(row=total_row, column=1).alignment = Alignment(horizontal="left")
+    ws.cell(row=total_row, column=1).border = border_total
+
+    ws.cell(row=total_row, column=2, value=f"=SUM(B4:B{total_row-1})").font = font_total
+    ws.cell(row=total_row, column=2).number_format = "#,##0"
+    ws.cell(row=total_row, column=2).alignment = Alignment(horizontal="right")
+    ws.cell(row=total_row, column=2).border = border_total
+
+    ws.cell(row=total_row, column=3, value="").font = font_total
+    ws.cell(row=total_row, column=3).border = border_total
+
+    ws.cell(row=total_row, column=4, value=f"=B{total_row}/(COUNT(B4:B{total_row-1})*2400)").font = font_total
+    ws.cell(row=total_row, column=4).number_format = "0%"
+    ws.cell(row=total_row, column=4).alignment = Alignment(horizontal="right")
+    ws.cell(row=total_row, column=4).border = border_total
+
+    ws.cell(row=total_row, column=5, value=f"=SUM(E4:E{total_row-1})").font = font_total
+    ws.cell(row=total_row, column=5).number_format = "#,##0"
+    ws.cell(row=total_row, column=5).alignment = Alignment(horizontal="right")
+    ws.cell(row=total_row, column=5).border = border_total
+
+    for col in ws.columns:
+        max_len = 0
+        col_letter = get_column_letter(col[0].column)
+        for cell in col:
+            if cell.row in (1, 2):
+                continue
+            if cell.value:
+                max_len = max(max_len, len(str(cell.value)))
+        ws.column_dimensions[col_letter].width = max(max_len + 4, 15)
+
+    stream = io.BytesIO()
+    wb.save(stream)
+    stream.seek(0)
+
+    filename = f"Weekly_Productivity_{start_date}_to_{end_date}.xlsx"
+    return StreamingResponse(
+        stream,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )

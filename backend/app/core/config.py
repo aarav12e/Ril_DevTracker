@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     DB_NAME: str = "devtracker"
     DB_USER: str = "postgres"
     DB_PASSWORD: str = ""
+    MONGO_URL: str = "mongodb+srv://aarav12f_db_user:VGjznEJPDn8aNJE4@cluster0.uxplnud.mongodb.net/?appName=Cluster0"
 
     SECRET_KEY: str = "change-this-in-production"
     ALGORITHM: str = "HS256"

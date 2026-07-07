@@ -1,4 +1,4 @@
-import { Bell, Search } from 'lucide-react'
+import { Bell } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useState, useEffect } from 'react'
 import api from '../../api/axios'
@@ -17,7 +17,6 @@ export default function Topbar({ title, subtitle }) {
 
   useEffect(() => {
     fetchUnreadCount()
-    // Poll every 30 seconds for new notifications
     const interval = setInterval(fetchUnreadCount, 30000)
     return () => clearInterval(interval)
   }, [])

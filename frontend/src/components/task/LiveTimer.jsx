@@ -7,7 +7,7 @@ import { useState, useEffect, useRef } from 'react'
  * @param {number}  baseSeconds - Starting seconds count
  * @param {boolean} running     - If true, timer increments every second
  */
-export default function LiveTimer({ baseSeconds, running }) {
+export default function LiveTimer({ baseSeconds, running, className = "text-forest-600" }) {
   const [seconds, setSeconds] = useState(baseSeconds)
   const ref = useRef(null)
 
@@ -25,7 +25,7 @@ export default function LiveTimer({ baseSeconds, running }) {
   const s = String(seconds % 60).padStart(2, '0')
 
   return (
-    <span className="font-mono font-bold text-2xl text-forest-600">
+    <span className={`font-mono font-bold text-2xl ${className}`}>
       {h}:{m}:{s}
     </span>
   )

@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.core.database import Base, engine
-import app.models  # noqa — registers all models with Base
+from app.core.database import init_db
+import app.models
 
 # ── Import all routers ─────────────────────────────────────────
 from app.routes.auth import router as auth_router
@@ -13,9 +13,10 @@ from app.routes.upload import router as upload_router
 from app.routes.analytics import router as analytics_router
 from app.routes.notifications import router as notifications_router
 from app.routes.config import router as config_router
+from app.routes.leaves import router as leaves_router
 
-# ── Create tables (use Alembic in production) ──────────────────
-Base.metadata.create_all(bind=engine)
+# ── Initialize MongoDB indexes ──────────────────────────────────
+init_db()
 
 # ── App ────────────────────────────────────────────────────────
 app = FastAPI(
@@ -48,6 +49,7 @@ app.include_router(upload_router)
 app.include_router(analytics_router)
 app.include_router(notifications_router)
 app.include_router(config_router)
+app.include_router(leaves_router)
 
 
 # ── Health check ───────────────────────────────────────────────

@@ -127,14 +127,7 @@ export default function Login() {
             </button>
           </form>
 
-          {/* Domain warning */}
-          <div className="mt-6 flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
-            <Shield size={15} className="text-amber-600 flex-shrink-0 mt-0.5" />
-            <p className="text-xs text-amber-700">
-              Access restricted to <span className="font-semibold">@reliancehospital.com</span> domains only.
-              Unauthorized access attempts are logged and reported.
-            </p>
-          </div>
+
 
           <div className="mt-6 flex items-center justify-between">
             <button className="text-xs text-muted hover:text-forest-600 transition-colors">

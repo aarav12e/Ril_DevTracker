@@ -94,7 +94,7 @@
 
   /* ── Ticket chip ── */
   .ticket {
-    @apply font-mono text-xs font-bold bg-forest-50 text-forest-700 px-2 py-0.5 rounded border border-forest-200;
+    @apply font-mono text-xs font-bold bg-forest-50 text-forest-700 px-2 py-0.5 rounded border border-forest-200 whitespace-nowrap inline-block;
   }
 
   /* ── Pulse dot ── */

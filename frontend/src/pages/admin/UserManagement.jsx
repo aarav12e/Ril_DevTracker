@@ -109,21 +109,13 @@ function Drawer({ open, onClose, editUser, onSaved }) {
           {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">{error}</div>}
 
           <div>
-            <label className="label">Full Name</label>
-            <input className="input" placeholder="Sucharith Kumar" value={form.full_name} onChange={e => set('full_name', e.target.value)} />
+            <label className="label">Full Name <span className="text-red-500">*</span></label>
+            <input className="input" placeholder="Sucharith Kumar" value={form.full_name} onChange={e => set('full_name', e.target.value)} required />
           </div>
 
-          {!editUser && (
-            <div>
-              <label className="label">Username <span className="text-red-500">*</span></label>
-              <input className="input" placeholder="sucharith_dev" value={form.username} onChange={e => set('username', e.target.value)} required />
-            </div>
-          )}
-
           <div>
-            <label className="label">Email</label>
-            <input type="email" className="input" placeholder="name@reliancehospital.com" value={form.email} onChange={e => set('email', e.target.value)} />
-            <p className="text-[10px] text-amber-600 mt-1">⚠ Must use an allowed domain (e.g. @reliancehospital.com)</p>
+            <label className="label">Email <span className="text-red-500">*</span></label>
+            <input type="email" className="input" placeholder="name@reliancehospital.com" value={form.email} onChange={e => set('email', e.target.value)} required />
           </div>
 
           {!editUser && (

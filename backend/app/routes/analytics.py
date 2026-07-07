@@ -361,6 +361,7 @@ def export_report_data(
                 "module": t.module,
                 "category": t.category,
                 "remarks": t.remarks,
+                "description": t.description,
             }
             for t in tasks
         ],

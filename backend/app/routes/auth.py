@@ -11,44 +11,16 @@ from app.schemas import LoginRequest, TokenResponse, UserCreate, UserResponse
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
 
 
+from app.auth.auth_service import authenticate_user
+
 @router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, db = Depends(get_db)):
-    user_dict = db.users.find_one({"username": payload.username})
-    if not user_dict:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password",
-        )
-    user = User(**user_dict)
-    if not verify_password(payload.password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password",
-        )
-    if not user.is_active:
-        raise HTTPException(status_code=403, detail="Account is deactivated")
-
-    token = create_access_token({"sub": str(user.id), "role": user.role})
-    return TokenResponse(
-        access_token=token,
-        user_id=user.id,
-        username=user.username,
-        role=user.role,
-        full_name=user.full_name,
-    )
+    return authenticate_user(payload.username, payload.password, db)
 
 
 @router.post("/register", response_model=UserResponse)
 def register(payload: UserCreate, db = Depends(get_db)):
-    # Domain validation
-    if payload.email:
-        domain = payload.email.split("@")[-1]
-        if domain not in settings.allowed_domain_list:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Email domain @{domain} is not allowed. "
-                       f"Permitted domains: {settings.allowed_domain_list}",
-            )
+
 
     # Duplicate check
     if db.users.find_one({"username": payload.username}):

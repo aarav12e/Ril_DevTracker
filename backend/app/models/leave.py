@@ -28,20 +28,6 @@ class Leave:
         self.reason = kwargs.get("reason", "")
         self.total_days = kwargs.get("total_days", 0)
 
-        # ── Approval workflow ──────────────────────────────────────────────
-        self.status = kwargs.get("status", "pending")   # pending | approved | rejected
-        self.reviewed_by = kwargs.get("reviewed_by")    # user_id of admin/manager
-        self.reviewed_by_name = kwargs.get("reviewed_by_name", "")  # display name
-
-        reviewed_at = kwargs.get("reviewed_at")
-        if isinstance(reviewed_at, str):
-            try:
-                self.reviewed_at = datetime.fromisoformat(reviewed_at)
-            except:
-                self.reviewed_at = None
-        else:
-            self.reviewed_at = reviewed_at
-
         created_at = kwargs.get("created_at")
         if isinstance(created_at, str):
             try:
@@ -60,9 +46,5 @@ class Leave:
             "to_date": str(self.to_date) if isinstance(self.to_date, date) else self.to_date,
             "reason": self.reason,
             "total_days": self.total_days,
-            "status": self.status,
-            "reviewed_by": self.reviewed_by,
-            "reviewed_by_name": self.reviewed_by_name,
-            "reviewed_at": self.reviewed_at,
             "created_at": self.created_at,
         }

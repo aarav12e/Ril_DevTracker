@@ -48,18 +48,34 @@ def create_user(
     db = Depends(get_db),
     _=Depends(require_admin),
 ):
-    if payload.email:
-        domain = payload.email.split("@")[-1]
-        if domain not in settings.allowed_domain_list:
-            raise HTTPException(status_code=400, detail=f"Domain @{domain} not allowed")
 
-    if db.users.find_one({"username": payload.username}):
-        raise HTTPException(status_code=400, detail="Username already taken")
+
+    username = payload.username
+    if not username:
+        if payload.email:
+            username = payload.email.split("@")[0]
+        elif payload.full_name:
+            username = payload.full_name.lower().replace(" ", "_")
+        else:
+            username = "user"
+            
+        username = "".join(c for c in username if c.isalnum() or c == "_")
+        
+        # Ensure uniqueness
+        base_username = username
+        counter = 1
+        while db.users.find_one({"username": username}):
+            username = f"{base_username}_{counter}"
+            counter += 1
+
+    else:
+        if db.users.find_one({"username": username}):
+            raise HTTPException(status_code=400, detail="Username already taken")
 
     user_id = get_next_sequence_value("user_id")
     user = User(
         id=user_id,
-        username=payload.username,
+        username=username,
         email=payload.email,
         password_hash=hash_password(payload.password),
         full_name=payload.full_name,

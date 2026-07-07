@@ -15,7 +15,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
 
     APP_NAME: str = "DevTracker"
-    ALLOWED_DOMAINS: str = "reliancehospital.com,ril.com,jiohealth.com"
+
+    AUTH_MODE: str = "auto"
+    SSO_LOGIN_URL: str = "https://ssodev.ril.com/loginSAP"
 
     @property
     def DATABASE_URL(self) -> str:
@@ -23,10 +25,6 @@ class Settings(BaseSettings):
             f"postgresql+psycopg2://{self.DB_USER}:{self.DB_PASSWORD}"
             f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
         )
-
-    @property
-    def allowed_domain_list(self) -> List[str]:
-        return [d.strip() for d in self.ALLOWED_DOMAINS.split(",")]
 
     class Config:
         env_file = ".env"

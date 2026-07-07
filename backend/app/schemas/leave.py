@@ -17,17 +17,6 @@ class LeaveCreate(BaseModel):
         return v
 
 
-class LeaveStatusUpdate(BaseModel):
-    status: str  # "approved" | "rejected"
-
-    @field_validator("status")
-    @classmethod
-    def validate_status(cls, v):
-        if v not in {"approved", "rejected"}:
-            raise ValueError("status must be 'approved' or 'rejected'")
-        return v
-
-
 class LeaveResponse(BaseModel):
     id: int
     user_id: int
@@ -36,10 +25,6 @@ class LeaveResponse(BaseModel):
     to_date: date
     reason: str
     total_days: int
-    status: str = "pending"
-    reviewed_by: Optional[int] = None
-    reviewed_by_name: Optional[str] = None
-    reviewed_at: Optional[datetime] = None
     created_at: datetime
 
     class Config:

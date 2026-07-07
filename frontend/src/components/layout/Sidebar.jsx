@@ -10,7 +10,6 @@ const adminNav = [
   { to: '/admin/users',  label: 'Developers',  icon: Users },
   { to: '/admin/upload', label: 'Upload Excel', icon: Upload },
   { to: '/admin/reports',label: 'Reports',     icon: BarChart2 },
-  { to: '/admin/config', label: 'Settings',    icon: Settings },
 ]
 
 const devNav = [

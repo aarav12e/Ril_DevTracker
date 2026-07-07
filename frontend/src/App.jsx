@@ -14,7 +14,6 @@ const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'))
 const UserManagement = lazy(() => import('./pages/admin/UserManagement'))
 const ExcelUpload = lazy(() => import('./pages/admin/ExcelUpload'))
 const Reports = lazy(() => import('./pages/admin/Reports'))
-const RoleConfig = lazy(() => import('./pages/admin/RoleConfig'))
 
 // Lazy-loaded developer/intern pages
 const DevDashboard = lazy(() => import('./pages/dev/DevDashboard'))
@@ -58,9 +57,7 @@ export default function App() {
             <Route path="/admin/reports" element={
               <ProtectedRoute roles={['admin','manager']}><Reports /></ProtectedRoute>
             }/>
-            <Route path="/admin/config" element={
-              <ProtectedRoute roles={['admin']}><RoleConfig /></ProtectedRoute>
-            }/>
+
 
             {/* Developer / Intern routes */}
             <Route path="/dev" element={

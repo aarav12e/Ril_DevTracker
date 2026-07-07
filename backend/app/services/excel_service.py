@@ -18,7 +18,7 @@ COLUMN_MAP = {
     "subject": "task_title",
     "development subject": "task_title",
     "description": "description",
-    "remarks": "description",
+    "remarks": "remarks",
     "status": "status",
     "priority": "priority",
     "start_date": "start_date",
@@ -43,6 +43,12 @@ COLUMN_MAP = {
     "time_min": "hours_logged",
     "developer": "developer",
     "developers": "developer",
+    "developer name": "developer",
+    "ticket_id": "ticket_id",
+    "ticket id": "ticket_id",
+    "ticket": "ticket_id",
+    "module": "module",
+    "category": "category",
 }
 
 VALID_STATUSES = {"in_progress", "completed", "fut", "hold_functional", "hold_developer"}
@@ -62,7 +68,7 @@ def _clean_row(row: dict) -> dict:
     cleaned = {}
     
     # 1. Clean strings
-    for field in ("task_title", "description", "status", "priority", "track", "dev_type_task", "type_of_development", "cd_number", "functional_team", "developer"):
+    for field in ("task_title", "description", "remarks", "status", "priority", "track", "dev_type_task", "type_of_development", "cd_number", "functional_team", "developer", "ticket_id", "module", "category"):
         val = row.get(field)
         if val is None:
             cleaned[field] = None
@@ -342,6 +348,10 @@ def import_excel_workbook(
             "functional_team": row.get("functional_team"),
             "hours_logged": hours,
             "total_seconds": int(round(hours * 3600)),
+            "ticket_id": row.get("ticket_id"),
+            "module": row.get("module"),
+            "category": row.get("category"),
+            "remarks": row.get("remarks"),
         })
 
     # Create upload history record
@@ -366,10 +376,13 @@ def import_excel_workbook(
         
         start_date_str = str(task_data.get("start_date")) if task_data.get("start_date") else None
         due_date_str = str(task_data.get("due_date")) if task_data.get("due_date") else None
+        
+        # Use provided ticket_id if valid, otherwise generate one
+        ticket_id = task_data.get("ticket_id") or f"SR-{task_id:04d}"
 
         task = TaskUpload(
             id=task_id,
-            ticket_id=f"SR-{task_id:04d}",
+            ticket_id=ticket_id,
             user_id=target_user_id,
             upload_source="excel",
             file_name=file_name,
@@ -388,6 +401,9 @@ def import_excel_workbook(
             functional_team=task_data["functional_team"],
             hours_logged=task_data["hours_logged"],
             total_seconds=task_data["total_seconds"],
+            module=task_data["module"],
+            category=task_data["category"],
+            remarks=task_data["remarks"],
         )
         db.task_uploads.insert_one(task.to_dict())
 

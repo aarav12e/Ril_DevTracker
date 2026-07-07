@@ -18,7 +18,7 @@ class TokenResponse(BaseModel):
 
 
 class UserCreate(BaseModel):
-    username: str
+    username: Optional[str] = None
     email: Optional[str] = None
     password: str
     full_name: Optional[str] = None

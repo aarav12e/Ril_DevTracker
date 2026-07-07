@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 from app.core.database import get_db, get_next_sequence_value
 from app.core.security import get_current_user, require_admin_or_manager
 from app.models.leave import Leave
-from app.schemas.leave import LeaveCreate, LeaveResponse, LeaveStatusUpdate
+from app.schemas.leave import LeaveCreate, LeaveResponse
 
 router = APIRouter(prefix="/api/leaves", tags=["Leaves"])
 
@@ -44,7 +44,6 @@ def apply_leave(
         to_date=payload.to_date,
         reason=payload.reason,
         total_days=total_days,
-        status="pending",
         created_at=datetime.utcnow()
     )
 
@@ -65,43 +64,11 @@ def get_my_leaves(
 # ── All leaves (admin / manager) ─────────────────────────────────────────────
 @router.get("", response_model=List[LeaveResponse])
 def get_all_leaves(
-    status: Optional[str] = None,
     db = Depends(get_db),
     current_user = Depends(require_admin_or_manager),
 ):
-    filt = {}
-    if status:
-        filt["status"] = status
-    cursor = db.leaves.find(filt).sort("created_at", -1)
+    cursor = db.leaves.find().sort("created_at", -1)
     return [Leave(**l) for l in cursor]
-
-
-# ── Approve or Reject a leave (admin / manager) ───────────────────────────────
-@router.patch("/{leave_id}/status", response_model=LeaveResponse)
-def update_leave_status(
-    leave_id: int,
-    payload: LeaveStatusUpdate,
-    db = Depends(get_db),
-    current_user = Depends(require_admin_or_manager),
-):
-    leave_dict = db.leaves.find_one({"id": leave_id})
-    if not leave_dict:
-        raise HTTPException(status_code=404, detail="Leave record not found")
-
-    reviewer_name = current_user.full_name or current_user.username
-
-    db.leaves.update_one(
-        {"id": leave_id},
-        {"$set": {
-            "status": payload.status,
-            "reviewed_by": current_user.id,
-            "reviewed_by_name": reviewer_name,
-            "reviewed_at": datetime.utcnow(),
-        }}
-    )
-
-    updated = db.leaves.find_one({"id": leave_id})
-    return Leave(**updated)
 
 
 # ── Delete a leave request ────────────────────────────────────────────────────
@@ -115,22 +82,9 @@ def delete_leave(
     if not leave_dict:
         raise HTTPException(status_code=404, detail="Leave record not found")
 
-    # Developers can only delete their own PENDING leaves
-    if current_user.role not in ("admin", "manager"):
-        if leave_dict["user_id"] != current_user.id:
-            raise HTTPException(status_code=403, detail="Permission denied")
-        if leave_dict.get("status") == "approved":
-            raise HTTPException(status_code=400, detail="Cannot delete an already approved leave. Contact your manager.")
+    # Developers can only delete their own leave requests
+    if current_user.role not in ("admin", "manager") and leave_dict["user_id"] != current_user.id:
+        raise HTTPException(status_code=403, detail="Permission denied")
 
     db.leaves.delete_one({"id": leave_id})
     return {"message": "Leave record deleted successfully"}
-
-
-# ── Pending count (for sidebar badge) ────────────────────────────────────────
-@router.get("/pending-count")
-def get_pending_count(
-    db = Depends(get_db),
-    current_user = Depends(require_admin_or_manager),
-):
-    count = db.leaves.count_documents({"status": "pending"})
-    return {"pending": count}

@@ -87,15 +87,16 @@ async def validate_excel(
 def download_template():
     """Download the standard Excel upload template."""
     df = pd.DataFrame(columns=[
-        "Track", "Dev Type", "Type of Development", "CD",
-        "Development Subject", "Functional Team", "Developers",
-        "Start Date", "End Date", "Time (Min)", "Status", "Remarks"
+        "Ticket ID", "Track", "Dev Type", "Module", "Type of Development", 
+        "CD Number", "Subject", "Category", "Description", "Functional Team", 
+        "Developer Name", "Start Date", "Due Date", "Status", "Remarks", "Time (Min)"
     ])
     # Add sample row
     df.loc[0] = [
-        "RFH", "SAP", "Development", "8089020",
-        "BPL Case Discount SOA and Invoice Print", "Biswajit", "Priya Dev",
-        "2026-06-01", "2026-06-05", "150", "in_progress", "SAP discount module fix"
+        "SR-0001", "RFH", "react", "FICO", "Production Issue", 
+        "CD:8089020", "BPL Case Discount SOA and Invoice Print", "Debugging", 
+        "SAP discount module calculation fix", "Biswajit", "Priya Dev",
+        "2026-06-01", "2026-06-05", "in_progress", "FICO module discount fix", "150"
     ]
 
     output = io.BytesIO()

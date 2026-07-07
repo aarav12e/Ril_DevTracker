@@ -68,7 +68,7 @@ export default function Sidebar() {
             }
           >
             <Icon size={16} />
-            {label}
+            <span className="flex-1">{label}</span>
           </NavLink>
         ))}
       </nav>

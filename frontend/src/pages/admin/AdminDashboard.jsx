@@ -86,7 +86,8 @@ export default function AdminDashboard() {
   // Calculate totals for productivity sheet view
   const prodItems = productivityData?.data || []
   const totalMins = prodItems.reduce((sum, item) => sum + item.total_minutes, 0)
-  const avgProdPct = prodItems.length > 0 ? Math.round((totalMins / (prodItems.length * 2400)) * 100) : 0
+  const totalTargetMins = prodItems.reduce((sum, item) => sum + (item.target_minutes || 2400), 0)
+  const avgProdPct = totalTargetMins > 0 ? Math.round((totalMins / totalTargetMins) * 100) : 0
   const totalLeaves = prodItems.reduce((sum, item) => sum + (item.leave_days || 0), 0)
 
   return (
@@ -153,7 +154,7 @@ export default function AdminDashboard() {
         <div className="flex items-center justify-between border-b border-border bg-slate-50 px-6 py-3">
           <div className="flex items-center gap-2">
             <Award size={15} className="text-[#0D4F3C]" />
-            <span className="text-xs font-semibold text-slate-600">Calculated out of 40-hour weekly target per developer</span>
+            <span className="text-xs font-semibold text-slate-600">Target is adjusted based on leave days — 40h minus 8h per leave day</span>
           </div>
           <button
             onClick={handleExportProductivity}
@@ -172,13 +173,14 @@ export default function AdminDashboard() {
                 <th className="px-6 py-3 text-right font-bold text-xs text-slate-700 uppercase tracking-wider border-r border-slate-200 w-44">Sum of Time (Min)</th>
                 <th className="px-6 py-3 text-left font-bold text-xs text-slate-700 uppercase tracking-wider border-r border-slate-200">Sum of Time (Hours)</th>
                 <th className="px-6 py-3 text-right font-bold text-xs text-slate-700 uppercase tracking-wider border-r border-slate-200 w-40">Productivity</th>
+                <th className="px-6 py-3 text-right font-bold text-xs text-slate-700 uppercase tracking-wider border-r border-slate-200 w-32">Target (Hrs)</th>
                 <th className="px-6 py-3 text-right font-bold text-xs text-slate-700 uppercase tracking-wider w-32">Leaves (Days)</th>
               </tr>
             </thead>
             <tbody>
               {prodItems.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-muted text-sm">
+                  <td colSpan={6} className="px-6 py-12 text-center text-muted text-sm">
                     No developer logs recorded for this week.
                   </td>
                 </tr>
@@ -197,12 +199,14 @@ export default function AdminDashboard() {
                           isExpanded ? 'bg-forest-50/20' : ''
                         }`}
                       >
-                        <td className="px-6 py-3.5 text-sm font-semibold text-charcoal border-r border-slate-100 flex items-center gap-2">
-                          {isExpanded ? <ChevronDown size={14} className="text-muted" /> : <ChevronRight size={14} className="text-muted" />}
-                          <span>{item.full_name}</span>
-                          <span className="text-[10px] bg-slate-100 text-muted px-1.5 py-0.5 rounded font-normal capitalize">
+                        <td className="px-6 py-3.5 text-sm font-semibold text-charcoal border-r border-slate-100">
+                          <div className="flex items-center gap-2">
+                            {isExpanded ? <ChevronDown size={14} className="text-muted" /> : <ChevronRight size={14} className="text-muted" />}
+                            <span>{item.full_name}</span>
+                          </div>
+                          <div className="pl-6 text-xs text-muted font-normal lowercase">
                             {item.dev_type}
-                          </span>
+                          </div>
                         </td>
                         <td className="px-6 py-3.5 text-sm text-right font-mono text-slate-600 border-r border-slate-100">
                           {item.total_minutes.toLocaleString()}
@@ -217,6 +221,14 @@ export default function AdminDashboard() {
                             {item.productivity_pct}%
                           </span>
                         </td>
+                        <td className="px-6 py-3.5 text-sm text-right border-r border-slate-100">
+                          <span className="text-xs text-slate-500">
+                            {item.target_hours != null ? `${item.target_hours}h` : '40h'}
+                            {item.leave_days > 0 && (
+                              <span className="ml-1 text-amber-600 font-semibold">(−{item.leave_days}d)</span>
+                            )}
+                          </span>
+                        </td>
                         <td className="px-6 py-3.5 text-sm text-right font-bold text-slate-600">
                           {item.leave_days || 0}
                         </td>
@@ -225,7 +237,7 @@ export default function AdminDashboard() {
                       {/* Expanded Drill-Down Task Logs */}
                       {isExpanded && (
                         <tr className="bg-slate-50/50">
-                          <td colSpan={5} className="px-8 py-4 border-b border-slate-200">
+                          <td colSpan={6} className="px-8 py-4 border-b border-slate-200">
                             <div className="bg-white rounded-lg border border-border p-4 shadow-inner">
                               <h4 className="text-xs font-bold text-[#0D4F3C] uppercase tracking-wider mb-3">
                                 Weekly Log Sheet — {item.full_name}
@@ -280,6 +292,7 @@ export default function AdminDashboard() {
                   <td className="px-6 py-4 text-sm text-right text-[#0D4F3C] border-r border-slate-200">
                     {avgProdPct}% Average
                   </td>
+                  <td className="px-6 py-4 text-sm text-right text-slate-500 border-r border-slate-200">—</td>
                   <td className="px-6 py-4 text-sm text-right text-slate-800">
                     {totalLeaves}
                   </td>

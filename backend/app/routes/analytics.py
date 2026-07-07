@@ -10,11 +10,16 @@ router = APIRouter(prefix="/api/analytics", tags=["Analytics"])
 
 
 def get_leave_days_in_period(user_id: int, start: date, end: date, db) -> int:
-    leaves_cursor = db.leaves.find({
+    """
+    Count weekdays of leave for a user within [start, end].
+    All submitted leaves automatically adjust productivity — no approval step needed.
+    """
+    query = {
         "user_id": user_id,
         "from_date": {"$lte": str(end)},
-        "to_date": {"$gte": str(start)}
-    })
+        "to_date": {"$gte": str(start)},
+    }
+    leaves_cursor = db.leaves.find(query)
     total_days = 0
     for leave in leaves_cursor:
         from_d = date.fromisoformat(leave["from_date"]) if isinstance(leave["from_date"], str) else leave["from_date"]
@@ -416,7 +421,15 @@ def weekly_productivity(
         mins = total_mins % 60
         hours_str = f"{hrs} hours {mins} minutes"
 
-        prod_pct = int(round((total_mins / 2400) * 100))
+        # All leave days automatically reduce the 40-hr (2400 min) weekly target
+        leave_days = get_leave_days_in_period(dev.id, start_date, end_date, db)
+        target_mins = max(2400 - (leave_days * 480), 0)  # 480 min = 8 hrs/day
+        target_hrs = round(target_mins / 60, 1)
+
+        if target_mins > 0:
+            prod_pct = int(round((total_mins / target_mins) * 100))
+        else:
+            prod_pct = 100  # Developer on full-week leave
 
         task_list = []
         for t in dev_tasks:
@@ -439,7 +452,9 @@ def weekly_productivity(
             "hours_str": hours_str,
             "productivity_pct": prod_pct,
             "tasks": task_list,
-            "leave_days": get_leave_days_in_period(dev.id, start_date, end_date, db),
+            "leave_days": leave_days,
+            "target_hours": target_hrs,
+            "target_minutes": target_mins,
         })
 
     breakdown.sort(key=lambda x: x["full_name"].lower())
@@ -569,14 +584,16 @@ def export_weekly_productivity(
         ws.cell(row=row_idx, column=3).alignment = Alignment(horizontal="left")
         ws.cell(row=row_idx, column=3).border = border_data
 
-        formula = f"=B{row_idx}/2400"
-        ws.cell(row=row_idx, column=4, value=formula).font = font_data
+        # All leave days automatically reduce the 40-hr target
+        leave_days_export = get_leave_days_in_period(dev.id, start_date, end_date, db)
+        target_mins = max(2400 - (leave_days_export * 480), 1)  # avoid division by zero
+        prod_pct_val = round(total_mins / target_mins, 4)
+        ws.cell(row=row_idx, column=4, value=prod_pct_val).font = font_data
         ws.cell(row=row_idx, column=4).number_format = "0%"
         ws.cell(row=row_idx, column=4).alignment = Alignment(horizontal="right")
         ws.cell(row=row_idx, column=4).border = border_data
 
-        leave_days = get_leave_days_in_period(dev.id, start_date, end_date, db)
-        ws.cell(row=row_idx, column=5, value=leave_days).font = font_data
+        ws.cell(row=row_idx, column=5, value=leave_days_export).font = font_data
         ws.cell(row=row_idx, column=5).number_format = "#,##0"
         ws.cell(row=row_idx, column=5).alignment = Alignment(horizontal="right")
         ws.cell(row=row_idx, column=5).border = border_data

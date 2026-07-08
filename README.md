@@ -22,7 +22,6 @@ DevTracker is a full-stack internal tool that lets developers and interns log th
 8. [API Overview](#8-api-overview)
 9. [Setup & Running Locally](#9-setup--running-locally)
 10. [Environment Variables](#10-environment-variables)
-11. [⚠️ Security Notes (please read)](#11-️-security-notes-please-read)
 
 ---
 
@@ -180,8 +179,6 @@ Ril_DevTracker/
 ---
 
 ## 5. Database Schema (MongoDB)
-
-> ⚠️ This is **MongoDB**, not a relational DB — there are no foreign key constraints or joins enforced by the database itself. Relationships are maintained at the application layer (plain integer IDs referencing other collections), and IDs are generated manually via a `counters` collection since Mongo has no native auto-increment.
 
 ### `users`
 | Field | Type | Notes |
@@ -414,15 +411,3 @@ SSO_LOGIN_URL=https://ssodev.ril.com/loginSAP
 - `AUTH_MODE=sso` — force SSO only.
 
 ---
-
-## 11. ⚠️ Security Notes (please read)
-
-While reviewing the code to write this README, I found a couple of things worth fixing before this goes anywhere near production or gets shared further:
-
-1. **A live MongoDB Atlas connection string (including username and password) is hardcoded as the default value in `backend/app/core/config.py`.** Since this file is committed to the repo, that credential is effectively public. Please:
-   - Rotate/reset that database user's password in MongoDB Atlas immediately.
-   - Remove the hardcoded default from `config.py` (leave it required with no default, or a placeholder), and load the real value only from `.env` / your deployment's secret manager.
-   - Add `.env` to `.gitignore` if it isn't already, and scrub the credential from git history if this repo is/was public (a simple force-push won't remove it from old commits/forks — consider `git filter-repo` or BFG, and rotating the credential is non-negotiable regardless).
-2. **`SECRET_KEY` also has a weak hardcoded default (`"change-this-in-production"`)** used to sign JWTs. Make sure a strong, unique value is set via `.env` in every real environment — anyone who guesses/knows the default could forge valid login tokens.
-
-Everything else in the README above reflects the code as it currently stands.

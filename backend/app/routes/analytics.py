@@ -211,42 +211,77 @@ def admin_dashboard(
     start_dt = datetime.combine(start_date, datetime.min.time())
     end_dt = datetime.combine(end_date, datetime.max.time())
 
-    # Total tasks in period
-    tasks_in_period_cursor = db.task_uploads.find({
-        "created_at": {"$gte": start_dt, "$lte": end_dt}
-    })
-    tasks_in_period = [TaskUpload(**t) for t in tasks_in_period_cursor]
-
-    # Status breakdown
-    status_counts = {}
-    for task in tasks_in_period:
-        status_counts[task.status] = status_counts.get(task.status, 0) + 1
-
-    # Developer-wise hours in period
+    # 1. Get all developers
     developers_cursor = db.users.find({
         "role": {"$in": ["developer", "intern"]},
         "is_active": True,
     })
     developers = [User(**u) for u in developers_cursor]
 
+    # Gather tasks and sessions across all developers
+    tasks_in_period = []
     dev_breakdown = []
+    total_seconds = 0
+    status_counts = {}
+    track_counts = {}
+
     for dev in developers:
-        dev_task_ids = [t.id for t in tasks_in_period if t.user_id == dev.id]
+        # Get all sessions in this period for this developer
         sessions_cursor = db.task_sessions.find({
-            "task_id": {"$in": dev_task_ids},
+            "user_id": dev.id,
             "started_at": {"$gte": start_dt, "$lte": end_dt},
         })
         sessions = [TaskSession(**s) for s in sessions_cursor]
-        timer_secs = sum(s.duration_seconds or 0 for s in sessions)
         task_ids_with_sessions = set(s.task_id for s in sessions)
 
-        dev_tasks = [t for t in tasks_in_period if t.user_id == dev.id]
-        manual_secs = sum(
-            t.total_seconds
-            for t in dev_tasks
-            if t.id not in task_ids_with_sessions
-        )
-        total_secs = timer_secs + manual_secs
+        # Get all manual tasks for this developer in this period
+        dev_tasks_cursor = db.task_uploads.find({
+            "user_id": dev.id,
+            "start_date": {"$gte": str(start_date), "$lte": str(end_date)}
+        })
+        dev_tasks = [TaskUpload(**t) for t in dev_tasks_cursor]
+
+        # Load all tasks that had sessions this week
+        session_task_ids = list(task_ids_with_sessions)
+        session_tasks = []
+        if session_task_ids:
+            session_tasks = [TaskUpload(**t) for t in db.task_uploads.find({"id": {"$in": session_task_ids}})]
+
+        # Unique tasks for this developer this week
+        all_dev_week_tasks = {t.id: t for t in dev_tasks + session_tasks}.values()
+        tasks_in_period.extend(all_dev_week_tasks)
+
+        dev_total_secs = 0
+        for t in all_dev_week_tasks:
+            # 1. Sum of sessions for this task in the current week
+            task_week_sessions = [s for s in sessions if s.task_id == t.id]
+            task_week_secs = sum(s.duration_seconds or 0 for s in task_week_sessions)
+
+            # 2. Calculate manual seconds
+            all_sessions_cursor = db.task_sessions.find({"task_id": t.id})
+            all_sessions_secs = sum(s.get("duration_seconds") or 0 for s in all_sessions_cursor)
+            
+            manual_secs = max(0, (t.total_seconds or 0) - all_sessions_secs)
+
+            # If task's start_date is in this week, count manual seconds
+            is_start_date_in_week = False
+            if t.start_date:
+                t_start = t.start_date
+                if isinstance(t_start, str):
+                    try:
+                        t_start = date.fromisoformat(t_start)
+                    except:
+                        pass
+                if isinstance(t_start, date) and start_date <= t_start <= end_date:
+                    is_start_date_in_week = True
+
+            task_total_secs = task_week_secs
+            if is_start_date_in_week:
+                task_total_secs += manual_secs
+
+            dev_total_secs += task_total_secs
+
+        total_seconds += dev_total_secs
 
         dev_breakdown.append({
             "user_id": dev.id,
@@ -254,36 +289,23 @@ def admin_dashboard(
             "full_name": dev.full_name,
             "role": dev.role,
             "dev_type": dev.dev_type,
-            "total_seconds": total_secs,
-            "total_hours": seconds_to_hours(total_secs),
-            "task_count": len(dev_tasks),
+            "total_seconds": dev_total_secs,
+            "total_hours": seconds_to_hours(dev_total_secs),
+            "task_count": len(all_dev_week_tasks),
             "leave_days": get_leave_days_in_period(dev.id, start_date, end_date, db),
         })
 
+    # Sort developer breakdown by total seconds logged descending
     dev_breakdown.sort(key=lambda x: x["total_seconds"], reverse=True)
 
-    # Track breakdown
-    track_counts = {}
-    for task in tasks_in_period:
+    # Unique tasks overall
+    unique_tasks = {t.id: t for t in tasks_in_period}.values()
+
+    # Calculate status and track counts from the list of active tasks this week
+    for task in unique_tasks:
+        status_counts[task.status] = status_counts.get(task.status, 0) + 1
         if task.track:
             track_counts[task.track] = track_counts.get(task.track, 0) + 1
-
-    # Sum timer sessions + manual hours_logged
-    all_task_ids = [t.id for t in tasks_in_period]
-    session_seconds_cursor = db.task_sessions.find({
-        "task_id": {"$in": all_task_ids},
-        "started_at": {"$gte": start_dt, "$lte": end_dt}
-    })
-    all_sessions = [TaskSession(**s) for s in session_seconds_cursor]
-    session_seconds = sum(s.duration_seconds or 0 for s in all_sessions)
-    task_ids_with_sessions_all = set(s.task_id for s in all_sessions)
-
-    manual_seconds = sum(
-        t.total_seconds
-        for t in tasks_in_period
-        if t.id not in task_ids_with_sessions_all
-    )
-    total_seconds = session_seconds + manual_seconds
 
     total_users = db.users.count_documents({"is_active": True})
 
@@ -291,7 +313,7 @@ def admin_dashboard(
         "week_label": label,
         "kpis": {
             "total_users": total_users,
-            "total_tasks_this_week": len(tasks_in_period),
+            "total_tasks_this_week": len(unique_tasks),
             "completed_this_week": status_counts.get("completed", 0),
             "in_progress_this_week": status_counts.get("in_progress", 0),
             "total_hours_this_week": seconds_to_hours(total_seconds),
@@ -392,32 +414,75 @@ def weekly_productivity(
     })
     developers = [User(**u) for u in developers_cursor]
 
-    dev_tasks_cursor = db.task_uploads.find({
-        "created_at": {"$gte": start_dt, "$lte": end_dt}
-    })
-    dev_tasks_all = [TaskUpload(**t) for t in dev_tasks_cursor]
-
     breakdown = []
     for dev in developers:
-        dev_tasks = [t for t in dev_tasks_all if t.user_id == dev.id]
-        dev_task_ids = [t.id for t in dev_tasks]
-
+        # 1. Get all task sessions in this week for this developer
         sessions_cursor = db.task_sessions.find({
-            "task_id": {"$in": dev_task_ids},
+            "user_id": dev.id,
             "started_at": {"$gte": start_dt, "$lte": end_dt},
         })
         sessions = [TaskSession(**s) for s in sessions_cursor]
-        timer_secs = sum(s.duration_seconds or 0 for s in sessions)
         task_ids_with_sessions = set(s.task_id for s in sessions)
 
-        manual_secs = sum(
-            t.total_seconds
-            for t in dev_tasks
-            if t.id not in task_ids_with_sessions
-        )
-        total_secs = timer_secs + manual_secs
-        total_mins = int(round(total_secs / 60))
+        # 2. Get all manual tasks for this developer with start_date within this week
+        dev_tasks_cursor = db.task_uploads.find({
+            "user_id": dev.id,
+            "start_date": {"$gte": str(start_date), "$lte": str(end_date)}
+        })
+        dev_tasks = [TaskUpload(**t) for t in dev_tasks_cursor]
 
+        # Get all tasks that had sessions this week
+        session_task_ids = list(task_ids_with_sessions)
+        session_tasks = []
+        if session_task_ids:
+            session_tasks = [TaskUpload(**t) for t in db.task_uploads.find({"id": {"$in": session_task_ids}})]
+            
+        # Combine the lists and remove duplicates
+        all_week_tasks = {t.id: t for t in dev_tasks + session_tasks}.values()
+
+        total_secs = 0
+        task_list = []
+        for t in all_week_tasks:
+            # 1. Sum of sessions for this task in the current week
+            task_week_sessions = [s for s in sessions if s.task_id == t.id]
+            task_week_secs = sum(s.duration_seconds or 0 for s in task_week_sessions)
+
+            # 2. Calculate manual seconds: total_seconds minus all session seconds across all time
+            all_sessions_cursor = db.task_sessions.find({"task_id": t.id})
+            all_sessions_secs = sum(s.get("duration_seconds") or 0 for s in all_sessions_cursor)
+            
+            manual_secs = max(0, (t.total_seconds or 0) - all_sessions_secs)
+
+            # If task's start_date is in this week, count manual seconds
+            is_start_date_in_week = False
+            if t.start_date:
+                t_start = t.start_date
+                if isinstance(t_start, str):
+                    try:
+                        t_start = date.fromisoformat(t_start)
+                    except:
+                        pass
+                if isinstance(t_start, date) and start_date <= t_start <= end_date:
+                    is_start_date_in_week = True
+
+            task_total_secs = task_week_secs
+            if is_start_date_in_week:
+                task_total_secs += manual_secs
+
+            total_secs += task_total_secs
+            task_mins = int(round(task_total_secs / 60))
+
+            task_list.append({
+                "id": t.id,
+                "ticket_id": t.ticket_id,
+                "task_title": t.task_title,
+                "track": t.track,
+                "status": t.status,
+                "hours_logged": round(task_mins / 60, 2),
+                "created_at": str(t.created_at),
+            })
+
+        total_mins = int(round(total_secs / 60))
         hrs = total_mins // 60
         mins = total_mins % 60
         hours_str = f"{hrs} hours {mins} minutes"
@@ -431,18 +496,6 @@ def weekly_productivity(
             prod_pct = int(round((total_mins / target_mins) * 100))
         else:
             prod_pct = 100  # Developer on full-week leave
-
-        task_list = []
-        for t in dev_tasks:
-            task_list.append({
-                "id": t.id,
-                "ticket_id": t.ticket_id,
-                "task_title": t.task_title,
-                "track": t.track,
-                "status": t.status,
-                "hours_logged": float(t.hours_logged or 0),
-                "created_at": str(t.created_at),
-            })
 
         breakdown.append({
             "developer_id": dev.id,
@@ -497,11 +550,6 @@ def export_weekly_productivity(
     })
     developers = [User(**u) for u in developers_cursor]
 
-    dev_tasks_cursor = db.task_uploads.find({
-        "created_at": {"$gte": start_dt, "$lte": end_dt}
-    })
-    dev_tasks_all = [TaskUpload(**t) for t in dev_tasks_cursor]
-
     wb = Workbook()
     ws = wb.active
     ws.title = "Productivity Summary"
@@ -551,23 +599,61 @@ def export_weekly_productivity(
 
     row_idx = 4
     for dev in sorted(developers, key=lambda x: x.full_name or x.username):
-        dev_tasks = [t for t in dev_tasks_all if t.user_id == dev.id]
-        dev_task_ids = [t.id for t in dev_tasks]
-
+        # 1. Get all task sessions in this week for this developer
         sessions_cursor = db.task_sessions.find({
-            "task_id": {"$in": dev_task_ids},
+            "user_id": dev.id,
             "started_at": {"$gte": start_dt, "$lte": end_dt},
         })
         sessions = [TaskSession(**s) for s in sessions_cursor]
-        timer_secs = sum(s.duration_seconds or 0 for s in sessions)
         task_ids_with_sessions = set(s.task_id for s in sessions)
 
-        manual_secs = sum(
-            t.total_seconds
-            for t in dev_tasks
-            if t.id not in task_ids_with_sessions
-        )
-        total_mins = int(round((timer_secs + manual_secs) / 60))
+        # 2. Get all manual tasks for this developer with start_date within this week
+        dev_tasks_cursor = db.task_uploads.find({
+            "user_id": dev.id,
+            "start_date": {"$gte": str(start_date), "$lte": str(end_date)}
+        })
+        dev_tasks = [TaskUpload(**t) for t in dev_tasks_cursor]
+
+        # Get all tasks that had sessions this week
+        session_task_ids = list(task_ids_with_sessions)
+        session_tasks = []
+        if session_task_ids:
+            session_tasks = [TaskUpload(**t) for t in db.task_uploads.find({"id": {"$in": session_task_ids}})]
+            
+        # Combine the lists and remove duplicates
+        all_week_tasks = {t.id: t for t in dev_tasks + session_tasks}.values()
+
+        total_secs = 0
+        for t in all_week_tasks:
+            # 1. Sum of sessions for this task in the current week
+            task_week_sessions = [s for s in sessions if s.task_id == t.id]
+            task_week_secs = sum(s.duration_seconds or 0 for s in task_week_sessions)
+
+            # 2. Calculate manual seconds
+            all_sessions_cursor = db.task_sessions.find({"task_id": t.id})
+            all_sessions_secs = sum(s.get("duration_seconds") or 0 for s in all_sessions_cursor)
+            
+            manual_secs = max(0, (t.total_seconds or 0) - all_sessions_secs)
+
+            # If task's start_date is in this week, count manual seconds
+            is_start_date_in_week = False
+            if t.start_date:
+                t_start = t.start_date
+                if isinstance(t_start, str):
+                    try:
+                        t_start = date.fromisoformat(t_start)
+                    except:
+                        pass
+                if isinstance(t_start, date) and start_date <= t_start <= end_date:
+                    is_start_date_in_week = True
+
+            task_total_secs = task_week_secs
+            if is_start_date_in_week:
+                task_total_secs += manual_secs
+
+            total_secs += task_total_secs
+
+        total_mins = int(round(total_secs / 60))
 
         ws.cell(row=row_idx, column=1, value=dev.full_name or dev.username).font = font_data
         ws.cell(row=row_idx, column=1).alignment = Alignment(horizontal="left")

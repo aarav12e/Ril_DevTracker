@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from datetime import datetime
+from datetime import datetime, date
 from app.core.database import get_db, get_next_sequence_value
 from app.core.security import get_current_user
 from app.models import TaskUpload, TaskSession
@@ -227,6 +227,7 @@ def complete_task(
             "timer_status": "completed",
             "status": "completed",
             "completed_at": now,
+            "due_date": str(date.today()),
             "hours_logged": hours_logged
         }}
     )

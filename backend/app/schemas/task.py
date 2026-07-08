@@ -21,10 +21,13 @@ class TaskCreate(BaseModel):
     module: Optional[str] = None
     category: Optional[str] = None
     remarks: Optional[str] = None
+    user_id: Optional[int] = None
+    status: Optional[str] = "in_progress"
 
     @field_validator("priority")
     @classmethod
     def validate_priority(cls, v):
+        print(f"validate_priority input: {repr(v)}, type: {type(v)}")
         if v not in {"low", "medium", "high"}:
             raise ValueError("priority must be low, medium, or high")
         return v
@@ -57,6 +60,7 @@ class TaskUpdate(BaseModel):
     module: Optional[str] = None
     category: Optional[str] = None
     remarks: Optional[str] = None
+    user_id: Optional[int] = None
 
 
 class TaskResponse(BaseModel):

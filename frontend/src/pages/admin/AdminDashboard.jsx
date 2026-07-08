@@ -88,6 +88,7 @@ export default function AdminDashboard() {
   const statusData = Object.entries(data?.status_breakdown || {}).map(([name, value]) => ({
     name: name === 'completed' ? 'PROD' : name === 'in_progress' ? 'WIP' : name.toUpperCase(),
     value,
+    statusKey: name,
   }))
 
   // Calculate totals for productivity sheet view
@@ -384,7 +385,7 @@ export default function AdminDashboard() {
               <PieChart>
                 <Pie data={statusData} cx="50%" cy="50%" innerRadius={55} outerRadius={80} paddingAngle={3} dataKey="value">
                   {statusData.map((entry, i) => (
-                    <Cell key={i} fill={STATUS_COLORS[entry.name] || '#94A3B8'} />
+                    <Cell key={i} fill={STATUS_COLORS[entry.statusKey] || '#94A3B8'} />
                   ))}
                 </Pie>
                 <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #E2E8F0', fontSize: 12 }} />

@@ -86,31 +86,55 @@ def create_task(
     task_id = get_next_sequence_value("task_id")
     ticket_id = f"SR-{task_id:04d}"
 
+    # ── Assignee resolution & validation ──
+    target_user_id = current_user.id
+    assigned_by = None
+
+    if payload.user_id is not None:
+        if current_user.role in ("admin", "manager"):
+            assignee = db.users.find_one({"id": payload.user_id})
+            if not assignee:
+                raise HTTPException(status_code=400, detail="Assignee not found")
+            target_user_id = payload.user_id
+            assigned_by = current_user.id
+        else:
+            raise HTTPException(status_code=403, detail="You do not have permission to assign tasks to other users")
+
+    # Respect explicit status or fall back to complete if time is logged
     has_time = False
     if payload.total_seconds and payload.total_seconds > 0:
         has_time = True
     elif payload.hours_logged and payload.hours_logged > 0:
         has_time = True
 
-    timer_status = "completed" if has_time else "idle"
-    status = "completed" if has_time else "in_progress"
-    completed_at = datetime.utcnow() if has_time else None
-    
+    status = payload.status
+    if not status:
+        status = "completed" if has_time else "in_progress"
+
+    if status == "completed":
+        timer_status = "completed"
+        completed_at = datetime.utcnow()
+        due_date = payload.due_date or date.today()
+    else:
+        timer_status = "idle"
+        completed_at = None
+        due_date = payload.due_date
+
     task = TaskUpload(
         id=task_id,
         ticket_id=ticket_id,
-        user_id=current_user.id,
+        user_id=target_user_id,
         task_title=payload.task_title,
         description=payload.description,
         priority=payload.priority,
         start_date=payload.start_date or date.today(),
-        due_date=payload.due_date,
+        due_date=due_date,
         track=payload.track,
         dev_type_task=payload.dev_type_task,
         type_of_development=payload.type_of_development,
         cd_number=payload.cd_number,
         functional_team=payload.functional_team,
-        assigned_by=payload.assigned_by,
+        assigned_by=assigned_by,
         hours_logged=payload.hours_logged or 0.0,
         total_seconds=payload.total_seconds or (int(round((payload.hours_logged or 0) * 3600))),
         upload_source="manual",
@@ -142,6 +166,23 @@ def update_task(
 
     update_data = payload.model_dump(exclude_unset=True)
 
+    if "user_id" in update_data:
+        if current_user.role in ("admin", "manager"):
+            if update_data["user_id"] is not None:
+                assignee = db.users.find_one({"id": update_data["user_id"]})
+                if not assignee:
+                    raise HTTPException(status_code=400, detail="Assignee not found")
+                update_data["assigned_by"] = current_user.id
+            else:
+                update_data["assigned_by"] = None
+        else:
+            raise HTTPException(status_code=403, detail="You do not have permission to reassign tasks")
+
+    # Convert date objects to ISO strings for MongoDB serialization
+    for k, v in list(update_data.items()):
+        if isinstance(v, date) and not isinstance(v, datetime):
+            update_data[k] = str(v)
+
     has_time = False
     if "hours_logged" in update_data:
         val = update_data["hours_logged"]
@@ -159,13 +200,29 @@ def update_task(
             has_time = True
 
     if has_time:
-        update_data["timer_status"] = "completed"
-        update_data["status"] = "completed"
-        if not task_dict.get("completed_at"):
-            update_data["completed_at"] = datetime.utcnow()
+        if "status" not in update_data:
+            update_data["status"] = "completed"
+            
+        if update_data["status"] == "completed":
+            update_data["timer_status"] = "completed"
+            if not task_dict.get("completed_at"):
+                update_data["completed_at"] = datetime.utcnow()
+        else:
+            update_data["timer_status"] = "idle"
+            update_data["completed_at"] = None
     else:
         if "hours_logged" in update_data and (update_data["hours_logged"] == 0 or update_data["hours_logged"] is None):
             update_data["timer_status"] = "idle"
+            
+    # If status is explicitly updated to completed, ensure due_date is auto-set
+    if "status" in update_data and update_data["status"] == "completed":
+        if "due_date" not in update_data or not update_data["due_date"]:
+            update_data["due_date"] = str(date.today())
+
+    # If status is explicitly updated to something other than completed, clear completion fields
+    if "status" in update_data and update_data["status"] != "completed":
+        update_data["completed_at"] = None
+        update_data["timer_status"] = "idle"
 
     if update_data:
         db.task_uploads.update_one({"id": task_id}, {"$set": update_data})

@@ -12,7 +12,7 @@ const EMPTY_FORM = {
   type_of_development: '', cd_number: '', functional_team: '',
   module: '', category: '', remarks: '',
   priority: 'medium', start_date: '', due_date: '',
-  status: 'in_progress', minutes_logged: '0'
+  status: 'in_progress', minutes_logged: '0', user_id: ''
 }
 
 const REF_TYPES = ['CD Number', 'CCB ID', 'Support Ticket']
@@ -57,11 +57,24 @@ export default function LogEntryForm() {
   const [loading, setLoading] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState('')
+  const [usersList, setUsersList] = useState([])
 
   // Leave Form state
   const [leaveForm, setLeaveForm] = useState({ from_date: '', to_date: '', reason: '' })
 
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }))
+
+  useEffect(() => {
+    if (user?.role === 'admin' || user?.role === 'manager') {
+      api.get('/api/users?is_active=true')
+        .then(res => {
+          setUsersList(res.data)
+        })
+        .catch(err => {
+          console.error('Failed to load users list:', err)
+        })
+    }
+  }, [user])
 
   useEffect(() => {
     if (isEdit) {
@@ -84,7 +97,8 @@ export default function LogEntryForm() {
             start_date: data.start_date || '',
             due_date: data.due_date || '',
             status: data.status || 'in_progress',
-            minutes_logged: data.hours_logged ? String(Math.round(parseFloat(data.hours_logged) * 60)) : '0'
+            minutes_logged: data.hours_logged ? String(Math.round(parseFloat(data.hours_logged) * 60)) : '0',
+            user_id: data.user_id || ''
           })
           const decoded = decodeRef(data.cd_number || '')
           setRefType(decoded.type)
@@ -121,6 +135,16 @@ export default function LogEntryForm() {
       payload.cd_number = encodeRef(refType, refValue)
       if (!payload.start_date) delete payload.start_date
       if (!payload.due_date)   delete payload.due_date
+
+      if (user?.role === 'admin' || user?.role === 'manager') {
+        if (payload.user_id) {
+          payload.user_id = parseInt(payload.user_id)
+        } else {
+          delete payload.user_id
+        }
+      } else {
+        delete payload.user_id
+      }
 
       const mins = parseFloat(payload.minutes_logged) || 0
       payload.hours_logged = parseFloat((mins / 60).toFixed(4))
@@ -405,16 +429,31 @@ export default function LogEntryForm() {
                     <input className="input py-2 text-xs h-9" placeholder="e.g. Biswajit" value={form.functional_team} onChange={e => set('functional_team', e.target.value)} />
                   </div>
 
-                  {/* Developer — read-only */}
+                  {/* Developer / Assignee */}
                   <div>
-                    <label className="label text-[10px] mb-1">Developer</label>
-                    <div className="input bg-surface py-1 text-xs h-9 flex items-center gap-1.5 border border-border">
-                      <span className="w-5 h-5 rounded-full bg-forest-600 flex items-center justify-center text-white text-[9px] font-bold">
-                        {(user?.full_name || user?.username || 'U')[0].toUpperCase()}
-                      </span>
-                      <span className="text-charcoal font-medium truncate max-w-[110px]">{user?.full_name || user?.username}</span>
-                      <span className="ml-auto text-[9px] bg-emerald-100 text-emerald-700 px-1 rounded">You</span>
-                    </div>
+                    <label className="label text-[10px] mb-1">Assignee (Developer/Intern)</label>
+                    {user?.role === 'admin' || user?.role === 'manager' ? (
+                      <select
+                        className="select py-2 text-xs h-9"
+                        value={form.user_id}
+                        onChange={e => set('user_id', e.target.value)}
+                      >
+                        <option value="">Self (Assign to Me)</option>
+                        {usersList.map(u => (
+                          <option key={u.id} value={u.id}>
+                            {u.full_name || u.username} ({u.role})
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="input bg-surface py-1 text-xs h-9 flex items-center gap-1.5 border border-border">
+                        <span className="w-5 h-5 rounded-full bg-forest-600 flex items-center justify-center text-white text-[9px] font-bold">
+                          {(user?.full_name || user?.username || 'U')[0].toUpperCase()}
+                        </span>
+                        <span className="text-charcoal font-medium truncate max-w-[110px]">{user?.full_name || user?.username}</span>
+                        <span className="ml-auto text-[9px] bg-emerald-100 text-emerald-700 px-1 rounded">You</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Start Date */}

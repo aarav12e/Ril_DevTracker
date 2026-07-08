@@ -106,6 +106,7 @@ def export_to_excel(
             "Developer Name": t.developer_name,
             "Start Date": str(t.start_date) if t.start_date else "",
             "End Date": str(t.due_date) if t.due_date else "",
+            "Time Logged (Mins)": int(round((t.total_seconds or 0) / 60)),
             "Status": t.status,
             "Remarks": t.remarks or "",
         })

@@ -1,6 +1,10 @@
 import axios from 'axios'
 
-const api = axios.create({ baseURL: '' })
+// In development: baseURL is '' so Vite's dev proxy handles /api/* → localhost:8000
+// In production (Azure): VITE_API_URL is set to the Azure App Service URL
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || '',
+})
 
 // Request interceptor to automatically inject the Bearer token
 api.interceptors.request.use(

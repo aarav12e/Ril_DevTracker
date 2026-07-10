@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
@@ -15,26 +16,48 @@ from app.routes.notifications import router as notifications_router
 from app.routes.config import router as config_router
 from app.routes.leaves import router as leaves_router
 
-# ── Initialize MongoDB indexes ──────────────────────────────────
-init_db()
+
+# ── Startup validation ─────────────────────────────────────────
+def _validate_settings():
+    """Crash loudly in production if insecure defaults are still set."""
+    if settings.is_production:
+        insecure_defaults = [
+            "change-this-in-production",
+            "change_this_to_a_secure_random_key_in_production",
+            "your_super_secret_key_change_this_in_production",
+        ]
+        if settings.SECRET_KEY in insecure_defaults:
+            raise RuntimeError(
+                "FATAL: SECRET_KEY is still set to an insecure default value. "
+                "Set a strong random SECRET_KEY in your Azure Application Settings before deploying."
+            )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # ── Startup ────────────────────────────────────────────────
+    _validate_settings()
+    init_db()
+    yield
+    # ── Shutdown ───────────────────────────────────────────────
+
 
 # ── App ────────────────────────────────────────────────────────
 app = FastAPI(
     title="DevTracker API",
     description="Internal Developer Activity Tracking — H.N. Reliance Hospital",
     version="1.0.0",
-    docs_url="/docs",        # Swagger UI at http://localhost:8000/docs
-    redoc_url="/redoc",
+    # Disable interactive docs in production to avoid exposing API surface
+    docs_url=None if settings.is_production else "/docs",
+    redoc_url=None if settings.is_production else "/redoc",
+    openapi_url=None if settings.is_production else "/openapi.json",
+    lifespan=lifespan,
 )
 
 # ── CORS ───────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",   # React Vite dev server
-        "http://localhost:3000",
-        "https://devtracker.vercel.app",   # Production frontend
-    ],
+    allow_origins=settings.allowed_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -59,7 +82,7 @@ def root():
         "app": settings.APP_NAME,
         "status": "running",
         "version": "1.0.0",
-        "docs": "/docs",
+        "environment": settings.ENVIRONMENT,
     }
 
 

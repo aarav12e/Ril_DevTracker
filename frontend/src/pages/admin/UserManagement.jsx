@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import Layout from '../../components/layout/Layout'
 import api from '../../api/axios'
-import LoadingSpinner from '../../components/shared/LoadingSpinner'
+import { SkeletonTable } from '../../components/shared/Skeleton'
 import { ROLES, DEV_STACK_TYPES } from '../../constants'
 import { Plus, Search, Edit2, UserX, UserCheck, X, Users, ChevronDown } from 'lucide-react'
 import { useToast } from '../../context/ToastContext'
@@ -302,7 +302,7 @@ export default function UserManagement() {
       <div className="card">
         <div className="overflow-x-auto -mx-6">
           {loading ? (
-            <LoadingSpinner />
+            <SkeletonTable rows={8} cols={9} />
           ) : (
             <table className="w-full">
               <thead>

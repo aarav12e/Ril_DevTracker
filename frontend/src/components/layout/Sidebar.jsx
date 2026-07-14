@@ -2,8 +2,9 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import {
   LayoutDashboard, ClipboardList, PlusCircle, BarChart2,
-  Users, Upload, Settings, LogOut, Activity
+  Users, Upload, Settings, LogOut
 } from 'lucide-react'
+
 
 const adminNav = [
   { to: '/admin',        label: 'Dashboard',   icon: LayoutDashboard },
@@ -42,11 +43,13 @@ export default function Sidebar() {
       <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-[#1a6b52]/30 to-transparent pointer-events-none" />
 
       {/* Logo */}
-      <div className="px-5 py-5 border-b border-white/10 relative z-10">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-lg bg-white/10 flex items-center justify-center border border-white/10">
-            <Activity size={18} className="text-gold-300" />
-          </div>
+      <div className="px-4 py-4 border-b border-white/10 relative z-10">
+        <div className="flex items-center gap-3">
+          <img
+            src="/logooo.png"
+            alt="Reliance Logo"
+            className="w-20 h-20 object-contain drop-shadow-sm flex-shrink-0"
+          />
           <div>
             <p className="font-bold text-white text-sm font-display leading-tight">DevTracker</p>
             <p className="text-[10px] text-gold-300 font-medium leading-tight">H.N. Reliance Hospital</p>
@@ -54,9 +57,10 @@ export default function Sidebar() {
         </div>
       </div>
 
+
       {/* Nav */}
       <nav className="flex-1 px-3 py-5 space-y-1 relative z-10">
-        <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-3 mb-2">Menu</p>
+
         {nav.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}

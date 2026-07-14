@@ -441,11 +441,25 @@ def weekly_productivity(
         all_week_tasks = {t.id: t for t in dev_tasks + session_tasks}.values()
 
         total_secs = 0
+        weekend_secs = 0
         task_list = []
         for t in all_week_tasks:
-            # 1. Sum of sessions for this task in the current week
+            # 1. Sum sessions for this task in the period — split by weekday vs weekend
             task_week_sessions = [s for s in sessions if s.task_id == t.id]
-            task_week_secs = sum(s.duration_seconds or 0 for s in task_week_sessions)
+            task_weekday_secs = 0
+            task_weekend_secs = 0
+            for s in task_week_sessions:
+                started = s.started_at
+                if isinstance(started, str):
+                    try:
+                        started = datetime.fromisoformat(started)
+                    except:
+                        pass
+                if isinstance(started, datetime) and started.weekday() >= 5:  # Sat=5, Sun=6
+                    task_weekend_secs += (s.duration_seconds or 0)
+                else:
+                    task_weekday_secs += (s.duration_seconds or 0)
+            task_week_secs = task_weekday_secs + task_weekend_secs
 
             # 2. Calculate manual seconds: total_seconds minus all session seconds across all time
             all_sessions_cursor = db.task_sessions.find({"task_id": t.id})
@@ -470,7 +484,11 @@ def weekly_productivity(
                 task_total_secs += manual_secs
 
             total_secs += task_total_secs
+            weekend_secs += task_weekend_secs
             task_mins = int(round(task_total_secs / 60))
+
+            # Detect if the task has any weekend sessions
+            is_weekend_task = task_weekend_secs > 0
 
             task_list.append({
                 "id": t.id,
@@ -479,13 +497,20 @@ def weekly_productivity(
                 "track": t.track,
                 "status": t.status,
                 "hours_logged": round(task_mins / 60, 2),
+                "weekend_hours": round(task_weekend_secs / 3600, 2),
+                "is_weekend_work": is_weekend_task,
                 "created_at": str(t.created_at),
             })
 
         total_mins = int(round(total_secs / 60))
+        weekend_mins = int(round(weekend_secs / 60))
         hrs = total_mins // 60
         mins = total_mins % 60
         hours_str = f"{hrs} hours {mins} minutes"
+
+        w_hrs = weekend_mins // 60
+        w_mins = weekend_mins % 60
+        weekend_hours_str = f"{w_hrs} hours {w_mins} minutes" if weekend_mins > 0 else ""
 
         # All leave days automatically reduce the 40-hr (2400 min) weekly target
         leave_days = get_leave_days_in_period(dev.id, start_date, end_date, db)
@@ -504,6 +529,8 @@ def weekly_productivity(
             "dev_type": dev.dev_type,
             "total_minutes": total_mins,
             "hours_str": hours_str,
+            "weekend_minutes": weekend_mins,
+            "weekend_hours_str": weekend_hours_str,
             "productivity_pct": prod_pct,
             "tasks": task_list,
             "leave_days": leave_days,
@@ -518,6 +545,171 @@ def weekly_productivity(
         "date_range": f"{start_date} to {end_date}",
         "data": breakdown,
     }
+
+
+def _compute_productivity_for_range(start_date: date, end_date: date, label: str, db) -> dict:
+    """Shared helper: compute productivity breakdown for all active developers in [start_date, end_date]."""
+    today = date.today()
+    # Cap end_date to today so we don't report future days
+    effective_end = min(end_date, today)
+
+    start_dt = datetime.combine(start_date, datetime.min.time())
+    end_dt = datetime.combine(effective_end, datetime.max.time())
+
+    # Count weekdays in the period for target calculation
+    def count_weekdays(s: date, e: date) -> int:
+        total = 0
+        cur = s
+        while cur <= e:
+            if cur.weekday() < 5:
+                total += 1
+            cur += timedelta(days=1)
+        return total
+
+    period_weekdays = count_weekdays(start_date, effective_end)
+    period_target_mins_base = period_weekdays * 480  # 8 hrs per weekday
+
+    developers_cursor = db.users.find({
+        "role": {"$in": ["developer", "intern"]},
+        "is_active": True,
+    })
+    developers = [User(**u) for u in developers_cursor]
+
+    breakdown = []
+    for dev in developers:
+        sessions_cursor = db.task_sessions.find({
+            "user_id": dev.id,
+            "started_at": {"$gte": start_dt, "$lte": end_dt},
+        })
+        sessions = [TaskSession(**s) for s in sessions_cursor]
+        task_ids_with_sessions = set(s.task_id for s in sessions)
+
+        dev_tasks_cursor = db.task_uploads.find({
+            "user_id": dev.id,
+            "start_date": {"$gte": str(start_date), "$lte": str(effective_end)}
+        })
+        dev_tasks = [TaskUpload(**t) for t in dev_tasks_cursor]
+
+        session_task_ids = list(task_ids_with_sessions)
+        session_tasks = []
+        if session_task_ids:
+            session_tasks = [TaskUpload(**t) for t in db.task_uploads.find({"id": {"$in": session_task_ids}})]
+
+        all_period_tasks = {t.id: t for t in dev_tasks + session_tasks}.values()
+
+        total_secs = 0
+        task_list = []
+        for t in all_period_tasks:
+            task_period_sessions = [s for s in sessions if s.task_id == t.id]
+            task_period_secs = sum(s.duration_seconds or 0 for s in task_period_sessions)
+
+            all_sessions_cursor = db.task_sessions.find({"task_id": t.id})
+            all_sessions_secs = sum(s.get("duration_seconds") or 0 for s in all_sessions_cursor)
+            manual_secs = max(0, (t.total_seconds or 0) - all_sessions_secs)
+
+            is_start_date_in_period = False
+            if t.start_date:
+                t_start = t.start_date
+                if isinstance(t_start, str):
+                    try:
+                        t_start = date.fromisoformat(t_start)
+                    except:
+                        pass
+                if isinstance(t_start, date) and start_date <= t_start <= effective_end:
+                    is_start_date_in_period = True
+
+            task_total_secs = task_period_secs
+            if is_start_date_in_period:
+                task_total_secs += manual_secs
+
+            total_secs += task_total_secs
+            task_mins = int(round(task_total_secs / 60))
+
+            task_list.append({
+                "id": t.id,
+                "ticket_id": t.ticket_id,
+                "task_title": t.task_title,
+                "track": t.track,
+                "status": t.status,
+                "hours_logged": round(task_mins / 60, 2),
+                "created_at": str(t.created_at),
+            })
+
+        total_mins = int(round(total_secs / 60))
+        hrs = total_mins // 60
+        mins = total_mins % 60
+        hours_str = f"{hrs} hours {mins} minutes"
+
+        leave_days = get_leave_days_in_period(dev.id, start_date, effective_end, db)
+        target_mins = max(period_target_mins_base - (leave_days * 480), 0)
+        target_hrs = round(target_mins / 60, 1)
+
+        if target_mins > 0:
+            prod_pct = int(round((total_mins / target_mins) * 100))
+        else:
+            prod_pct = 100
+
+        breakdown.append({
+            "developer_id": dev.id,
+            "username": dev.username,
+            "full_name": dev.full_name or dev.username,
+            "dev_type": dev.dev_type,
+            "total_minutes": total_mins,
+            "hours_str": hours_str,
+            "productivity_pct": prod_pct,
+            "tasks": task_list,
+            "leave_days": leave_days,
+            "target_hours": target_hrs,
+            "target_minutes": target_mins,
+        })
+
+    breakdown.sort(key=lambda x: x["full_name"].lower())
+
+    return {
+        "period_label": label,
+        "date_range": f"{start_date} to {effective_end}",
+        "period_weekdays": period_weekdays,
+        "data": breakdown,
+    }
+
+
+@router.get("/monthly-productivity")
+def monthly_productivity(
+    offset: int = 0,
+    db=Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Return productivity for a calendar month, capped at today for the current month."""
+    today = date.today()
+    year = today.year
+    month = today.month - offset
+    while month <= 0:
+        month += 12
+        year -= 1
+
+    start_date = date(year, month, 1)
+    if month == 12:
+        end_date = date(year + 1, 1, 1) - timedelta(days=1)
+    else:
+        end_date = date(year, month + 1, 1) - timedelta(days=1)
+
+    label = start_date.strftime("%B %Y")
+    return _compute_productivity_for_range(start_date, end_date, label, db)
+
+
+@router.get("/custom-productivity")
+def custom_productivity(
+    from_date: date = Query(...),
+    to_date: date = Query(...),
+    db=Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Return productivity for an arbitrary date range."""
+    if to_date < from_date:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="to_date cannot be before from_date")
+    label = f"{from_date.strftime('%d %b %Y')} – {to_date.strftime('%d %b %Y')}"
+    return _compute_productivity_for_range(from_date, to_date, label, db)
 
 
 @router.get("/weekly-productivity/export")

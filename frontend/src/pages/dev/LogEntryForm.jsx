@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import Layout from '../../components/layout/Layout'
 import api from '../../api/axios'
 import { useAuth } from '../../context/AuthContext'
@@ -48,9 +48,12 @@ export default function LogEntryForm() {
   const { toast } = useToast()
   const navigate = useNavigate()
   const { id } = useParams()
+  const location = useLocation()
   const isEdit = !!id
 
-  const [entryType, setEntryType] = useState('task') // 'task' | 'leave'
+  const [entryType, setEntryType] = useState(() => {
+    return location.state?.type || 'task'
+  })
   const [form, setForm] = useState(EMPTY_FORM)
   const [refType, setRefType] = useState('CD Number')
   const [refValue, setRefValue] = useState('')
@@ -61,6 +64,14 @@ export default function LogEntryForm() {
 
   // Leave Form state
   const [leaveForm, setLeaveForm] = useState({ from_date: '', to_date: '', reason: '' })
+
+  useEffect(() => {
+    if (location.state?.type) {
+      setEntryType(location.state.type)
+    } else {
+      setEntryType('task')
+    }
+  }, [location])
 
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }))
 

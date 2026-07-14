@@ -129,12 +129,7 @@ export default function Login() {
 
 
 
-          <div className="mt-6 flex items-center justify-between">
-            <button className="text-xs text-muted hover:text-forest-600 transition-colors">
-              Need help? <span className="text-forest-600 font-medium">Contact IT Support</span>
-            </button>
-            <span className="text-xs text-slate-300">v2.4.1 · build 20240619</span>
-          </div>
+
         </div>
       </div>
     </div>

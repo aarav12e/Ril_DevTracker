@@ -28,7 +28,11 @@ export default function QuickAddForm({ onSuccess }) {
     if (!form.task_title.trim()) return
     setLoading(true)
     try {
-      await api.post('/api/tasks', form)
+      const { data } = await api.post('/api/tasks', form)
+      // Automatically start the timer for the newly created task
+      if (data && data.id) {
+        await api.post(`/api/timer/start/${data.id}`)
+      }
       setForm({ task_title: '', track: 'RFH', dev_type_task: '', type_of_development: '', priority: 'medium' })
       onSuccess()
     } catch (err) {

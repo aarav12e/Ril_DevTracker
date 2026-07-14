@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import Layout from '../../components/layout/Layout'
 import api from '../../api/axios'
 import { useAuth } from '../../context/AuthContext'
-import LoadingSpinner from '../../components/shared/LoadingSpinner'
+import { SkeletonDevDashboard } from '../../components/shared/Skeleton'
 import LiveTimer from '../../components/task/LiveTimer'
 import TaskCard from '../../components/task/TaskCard'
 import QuickAddForm from '../../components/task/QuickAddForm'
@@ -61,7 +61,7 @@ export default function DevDashboard() {
 
   if (loading) return (
     <Layout title="My Dashboard">
-      <LoadingSpinner size="md" className="h-64" />
+      <SkeletonDevDashboard />
     </Layout>
   )
 

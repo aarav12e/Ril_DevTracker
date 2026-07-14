@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import Layout from '../../components/layout/Layout'
 import api from '../../api/axios'
-import LoadingSpinner from '../../components/shared/LoadingSpinner'
+import { SkeletonTable } from '../../components/shared/Skeleton'
 import EmptyState from '../../components/shared/EmptyState'
 import { statusClass, trackBadge } from '../../utils/badges'
 import { TRACKS } from '../../constants'
@@ -297,7 +297,7 @@ export default function Reports() {
             </h3>
           </div>
           {loading ? (
-            <LoadingSpinner />
+            <SkeletonTable rows={7} cols={8} />
           ) : (
             <div className="overflow-x-auto -mx-6">
               <table className="w-full">
@@ -367,7 +367,7 @@ export default function Reports() {
           </div>
 
           {leavesLoading ? (
-            <LoadingSpinner />
+            <SkeletonTable rows={4} cols={8} />
           ) : (
             <div className="overflow-x-auto -mx-6">
               <table className="w-full">
@@ -403,6 +403,12 @@ export default function Reports() {
                         <span className="bg-forest-50 text-[#0D4F3C] text-xs font-bold px-2 py-0.5 rounded border border-forest-200">
                           {l.total_days} weekday{l.total_days > 1 ? 's' : ''}
                         </span>
+                        {(() => {
+                          const calDays = Math.round((new Date(l.to_date) - new Date(l.from_date)) / 86400000) + 1
+                          return calDays !== l.total_days ? (
+                            <span className="ml-1 text-[10px] text-slate-400" title="Weekends are not counted as leave days">({calDays} cal. days)</span>
+                          ) : null
+                        })()}
                       </td>
                       <td className="table-cell text-xs text-muted">
                         {new Date(l.created_at).toLocaleDateString()}

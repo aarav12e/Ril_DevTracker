@@ -29,7 +29,15 @@ def get_next_sequence_value(sequence_name: str) -> int:
 
 
 def init_db():
+    try:
+        client.admin.command("ping")
+        print(f"✅ Successfully connected to MongoDB! (Database: '{db.name}')")
+    except Exception as e:
+        print(f"❌ Failed to connect to MongoDB: {e}")
+        raise e
+
     db.users.create_index("username", unique=True)
     db.users.create_index("email", unique=True, sparse=True)
     db.task_uploads.create_index("ticket_id", unique=True, sparse=True)
+
 
